@@ -1115,11 +1115,239 @@ that `Mobile` is the email column — is precisely the class of quiet wrongness 
 
 ---
 
+## Day 0 (later) — 2026-09-13 — The per-file turn
+
+Everything above assumes one shape per batch: the user brings a pile of lookalike documents, the
+system proposes one table, and the pile becomes rows in it. This section reverses that assumption,
+and five decisions fall out of the reversal.
+
+The trigger was a plain question about the flow — *"I should be able to preview the schema before I
+start converting all files"* — which the design as written could not answer. The old Columns screen
+proposed **one** shape for the whole batch, so there was nothing per-file to preview. Making the
+preview per-file makes the schema per-file, and that changes the product's spine.
+
+### D27 · The schema belongs to the file, not to the batch
+
+**Chose.** Each file is read on its own as soon as it uploads and gets its own inferred schema. A
+file containing three tables produces three. The batch-level Columns step is deleted; a per-file
+**Preview / Edit** button on each file row replaces it, disabled until that file's schema arrives.
+
+**Considered.** Keeping one batch schema and adding a per-file preview *of the same schema* — which
+is a preview of nothing. Inferring per file and then auto-merging into one batch schema, which is
+what the old design did implicitly. Asking the user up front whether their files share a shape.
+
+**Why, and what I gave up.** The old model was honest only when the pile really was uniform, and it
+handled non-uniformity by silently averaging — merging `Customer Name`, `client` and `Cust_Nm` into
+one column across 50 files and reporting *"found in 47 of 50"*. That count was doing a lot of work:
+it was the system admitting it had made a judgement call on the user's behalf. Per-file inference
+removes the need for the judgement call rather than reporting it better.
+
+What I gave up is real. **The batch no longer has a single answer**, so "the table" — the thing the
+product was named around — becomes "the tables", and the user has to do something deliberate (D31)
+to get back to one. The `DetectionCount` component and the *"found in 47 of 50 files"* pattern are
+both gone, and they were among the better bits of the old design. The compensation is that the
+convergence is now visible and opt-in in two places — apply-to-all before Convert (D29), merge
+after it (D31) — instead of invisible and automatic.
+
+**Cut.** The batch-level Columns screen. Cross-file column merging as an automatic behaviour.
+Confidence-as-a-count, which had nothing left to count.
+
+### D28 · Two schema edit operations, and the field `description` is cut
+
+**Chose.** The user can do exactly two things to an inferred schema: **change a field's type**, and
+**add a field**. Rename, delete and the free-text `description` are all removed. The UI does not
+render greyed-out controls for the missing operations — they aren't drawn at all.
+
+**Considered.** The old four-operation set (rename · delete · add · describe). Keeping rename and
+delete but marking renamed fields as diverging from source. Keeping `description` alone, since it is
+the cheapest of the four and the most load-bearing internally.
+
+**Why, and what I gave up.** The argument for the restriction is that the inferred schema is a
+*claim about the document*, not a specification of desired output. Renaming `Cust_Nm` to
+`Customer Name` makes the table disagree with the file it came from, which is precisely the seam
+where provenance stops being checkable. Deleting a field throws away something the document
+genuinely contains. Type correction and field addition are the two edits that don't lie about the
+source: one fixes our reading, the other fixes our omission.
+
+**The cost is the part worth recording, because it is larger than it looks.** `description` was
+doing three jobs, and all three now degrade:
+
+1. It went into the extraction prompt, so *"the total including tax, not the subtotal"* was how a
+   user steered the model without knowing there was a model (§3.2). That steering is gone. The
+   prompt now carries only field names and types.
+2. It was **D26's entire matching signal** for unfamiliar spreadsheet headers — see D26 (revised)
+   directly below, which is a forced consequence rather than an independent call.
+3. It was the answer to "two fields mean the same thing but are named differently", which now has
+   no answer at the schema level and must be handled by the user selecting compatible tables at
+   merge time.
+
+I am recording this as accepted rather than solved. If extraction quality drops measurably on the
+nasty-document corpus (D23), `description` coming back as an *optional, non-structural* annotation
+is the first thing to try, and it would not disturb the two-operation rule — a note on a field is
+not an edit to the shape.
+
+**Cut.** Rename. Delete. `description`. Greyed-out affordances for any of them.
+
+### D26 (revised) · Header reconciliation without a description to match on
+
+**Chose.** The model still reconciles a spreadsheet's headers, but per file and onto *that file's
+own inferred schema*, matching on field name and type alone.
+
+**Considered.** Dropping D26 entirely, since its original premise — a user-authored target schema
+with descriptions to match against — no longer exists. Reinstating `description` purely for this.
+
+**Why.** The original D26 existed because two vendors sending `Name, Email, Phone` and
+`Customer Name, Email ID, Mobile` had to land in one table or the product failed its own premise on
+the easiest file type it supports. Under D27 they no longer have to — they land in two tables, and
+converge only if the user merges them. So D26's job shrinks from *cross-file reconciliation* to
+*within-file header cleanup*, which name and type can carry.
+
+**What this costs, honestly:** the exact case D26 was written for — `Mobile` → `phone` — now fails
+at merge time rather than succeeding at infer time. Those two tables will not merge, because
+`Mobile` and `Phone` are different field names, and the user will be told so by name (D31). That is
+a worse outcome than the old design produced on that specific case, and it is the clearest single
+regression in this whole turn. It is accepted because the old behaviour bought it with an invisible
+automatic merge, which D27 exists to remove.
+
+**Cut.** Matching on `description`. Cross-file header reconciliation at infer time.
+
+### D29 · Apply-to-all matches on the original inferred schema
+
+**Chose.** After editing one schema, the user can apply it to every file whose **original** inferred
+schema matched the edited one exactly — same field names, same types, order-independent. The
+affected files are listed by name before it commits, and the save request carries both the new
+schema and the scope it applies to.
+
+**Considered.** Matching on the *current* state of each schema, so edits compound. Fuzzy matching on
+"similar" schemas. Applying to all files unconditionally and letting the user opt out. A "template"
+concept the user assigns files to.
+
+**Why.** Without this, D27's honesty costs the user forty repetitions of the same fix, which is the
+kind of tax that makes a principled design lose to a sloppy one. The choice that matters is matching
+on the *original*: it makes the rule statable in one sentence — *"this reaches the files that
+started out looking like this one"* — and therefore predictable. Matching on current state would
+mean the set of affected files depends on the order you did your edits in, which is unexplainable
+and unmemorable.
+
+Sending the scope with the save, rather than letting the server infer it, is the same instinct
+applied to the API: the server never has to reconstruct what the user meant.
+
+**Cut.** Fuzzy or subset matching. Compounding edits. Opt-out-by-default propagation.
+
+### D30 · Results stream per file, and Convert is the only gate
+
+**Chose.** A file's table becomes viewable and downloadable the moment that file finishes. The
+Processing screen hands work back continuously rather than at a terminal state. **Convert** is the
+one gate in the product, and it enables when every file has uploaded *and* settled its schema —
+ready **or** failed. Nothing is editable after it.
+
+**Considered.** Holding the line on "results appear when the batch reaches its end". Enabling Convert
+on upload completion alone, which is what was asked for literally. Allowing schema edits to continue
+during processing for files not yet started.
+
+**Why.** This one was already half-decided and contradicted itself across documents: `spec.md`'s processing section
+said *"document 4 is queryable while document 40 is still transcribing"* while `user-flows.md` and
+`feature-priorities.md` both said results appear only at the end. The contradiction survived because
+nothing forced a choice. Per-file schemas force it — once each file has its own shape, its result is
+its own artifact and there is nothing to wait for.
+
+The original argument for waiting was that a half-filled grid building itself row by row is
+agitating and hard to read. That argument holds for *one table filling in*, and doesn't transfer to
+*a list of files, some of which are done*. The new screen is a list with buttons appearing on it,
+which is a different thing to look at.
+
+**On the Convert gate specifically.** The literal ask was "enabled when all files are uploaded", but
+a file can be uploaded with its schema still inferring, and converting then would mean converting
+into nothing. Waiting for schemas to *settle* rather than *succeed* is what keeps a single
+unreadable file from holding fifty good ones hostage.
+
+**Freezing schemas after Convert** is the part that will feel restrictive and is worth defending:
+rows are being written against an approved shape, and letting it move underneath produces a table
+where half the rows were made under one set of rules. Re-running is the honest remedy (D13 already
+versions schemas for exactly this), and it stays P2.
+
+**Cut.** The terminal-state results rule. Editing during processing. Value corrections during
+processing — which, with the review queue moving to P2 (below), means **P0 ships with no way to edit
+a value at all.** That is the largest single scope reduction in this turn, and it is deliberate:
+the user can always see what to doubt and check it against the source, which is the part no other
+tool does. Fixing it in place is the part every tool does.
+
+### D31 · Merge is explicit, post-convert, and exact
+
+**Chose.** A **Merge** action appears alongside Download all once every file has finished. The user
+picks tables; tables sharing a shape are grouped so the common case is one click. The compatibility
+check is exact — same field names, same types, order-independent — and a failed check names the
+table, the field and the disagreement. A merged table carries a source-file column and keeps its
+evidence.
+
+**Considered.** Merging automatically wherever schemas matched, which is D27's rejected behaviour
+wearing a different hat. Widening on conflict (a number column and a text column become text).
+Subset merging, where missing fields become `not found`.
+
+**Why.** The strictness is the whole point. Widening is the dangerous option: it always succeeds,
+which feels good, and it silently turns a numeric column into text so that every total calculated
+downstream is wrong in a way nobody can see. That is the failure mode this product exists to
+prevent, reintroduced as a convenience. Being told *"`Invoice No` is text in 12 tables and number in
+3"* is a worse moment and a better outcome.
+
+Putting the conflict on the offending card rather than in a summary line is a small thing that
+decides whether the error is actionable.
+
+**Cut.** Automatic merging. Type widening. Subset merging. Merging before the batch finishes.
+
+### The review queue moves from P1 to P2
+
+Not a numbered decision — a priority call, recorded because it changes what P0 means.
+
+The keyboard review queue was P1 and marked *build this first*, on the argument that it is the other
+half of the trust promise. It is now P2, behind Insights. What survives at P0 is the half that can't
+be got any other way: cells are still marked amber by the `verify` stage, still carry a plain-English
+reason inline, and the evidence panel still opens on any cell. What's deferred is *acting* on that —
+correcting a value, drawing a box, the keyboard loop, and the `corrected` cell state that goes with
+them.
+
+The honest version of this trade: P0 now tells you exactly which numbers to doubt and lets you check
+each one against its source in two seconds, and then makes you fix them in Excel. That is a real gap
+and it is the first thing to close after P1.
+
+### D20 (revision 2) · Insights come back, bounded by citation
+
+**Chose.** Un-cut "insights", at P1. An LLM reads the **structured data** — not the documents — and
+looks for relationships between fields across the batch, returning charts plus short written
+findings. **Every finding cites the rows it came from, and a finding that cannot cite its rows is
+not rendered** — enforced in the `InsightCard` component, not in a prompt.
+
+**Considered.** Holding D20's line, which survived one previous revision intact. Putting insights
+back with no constraint. Making it a natural-language question box instead, which is the shape users
+ask for.
+
+**Why.** D20 cut insights on the grounds that it is *"a box that expands without limit — there is no
+state in which it is finished"*, and that objection was correct about unbounded insights. The
+citation rule is what bounds it: a finding must point at rows, which means the set of possible
+findings is the set of things visibly true about the table, not the set of things a model can say.
+That is the same rule that governs every value in the product, applied one level up. It also makes
+the feature falsifiable — a reviewer can click through and check, which is exactly what they cannot
+do with a competitor's insights panel.
+
+The question box is still cut. "Chat with your documents" remains a non-goal, and an NL box as a
+primary interface is the trust disaster D3 already described — it silently returns the wrong rows.
+Findings-with-citations is the constrained cousin: the system says what it found and shows its work,
+rather than answering whatever it's asked.
+
+**Enforcing the rule in the component rather than the prompt** is the load-bearing implementation
+detail. A prompt can be ignored by a model; a component that refuses to render an uncited card
+cannot.
+
+**Cut.** Unbounded insights. Natural-language questions. Scheduled reports and alerting, still.
+Ordinary "chart this column" stays at P2, behind Insights, which inverts the previous ordering.
+
+---
+
 ## Where I changed my mind
 
-Five decisions were reversed after they were first written. `decisions.md` shows only the outcome —
-the superseded choice sits in that row's *Alternatives* column. The full story is above, in the pairs
-of entries:
+Every decision below was reversed after it was first written. `decisions.md` shows only the outcome
+— the superseded choice sits in that row's *Alternatives* column. The full story is above, in the
+pairs of entries:
 
 | Decision | Original entry | Revised entry | Cause |
 |---|---|---|---|
@@ -1131,10 +1359,17 @@ of entries:
 | **D17** - extraction | Apache Tika as a JVM sidecar | TS libraries -> Python libraries + MarkItDown | First a 512 MB ceiling, then the language change |
 | **D18** - frontend | Vite SPA | Next.js app serving UI and API | Followed D15; the O5 question assumed Next's backend was the draw, and in the end it was |
 | **D19** - audio | AWS Transcribe, acoustic diarization | Hosted Whisper + turns inferred from content | No acoustic diarization on a free stack; local models not worth 2 GB |
-| **D20** - charts | Cut entirely | Back, as pipeline observability | Reversed at the user's call, with a reframe that makes them load-bearing |
+| **D20** - charts | Cut entirely | Back as pipeline observability -> insights back too, bounded by citation | Reversed twice. The second time, a rule that makes findings falsifiable is what bought them back |
 | **D21** - worker | Separate service | One process behind a flag -> separate service again | Round-tripped: a free-tier constraint imposed it, a container target removed it, and Vercel made it mandatory |
 | **D22** - data layer | Drizzle | SQLAlchemy Core -> Alembic owns, TypeScript introspects | Followed D15, twice |
 | **D24** - images | "No OCR subsystem at all" (part of D9) | Tesseract for position, model for meaning | D9 was right about meaning and wrong about position |
+| **D26** - headers | Reconciled across files using each field's `description` | Reconciled within a file, on name and type | Forced by D28 cutting `description`, and by D27 removing the need to reconcile across files at all |
+| **D27** - schema scope | One schema per batch, proposed by reading the pile | One schema per file, and per table within a file | A request to preview a schema before converting, which the old design had nothing per-file to show |
+| **D30** - when results appear | At a terminal state, never a half-filled table | Per file, the moment each one finishes | The rule contradicted `spec.md`'s processing section from the start; per-file schemas forced the choice |
+
+The last three arrived together on day 0 (later), 2026-09-13, and they are one reversal rather than
+three: **the batch stopped being the unit of meaning, and the file became it.** Everything else in
+that section follows from that single move.
 
 Open questions live in [`spec.md` §11](spec.md#11-open-questions).
 
