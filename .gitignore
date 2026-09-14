@@ -7,3 +7,19 @@ dist/
 __pycache__/
 *.py[cod]
 .venv/
+
+# Python worker
+.venv/
+.pytest_cache/
+
+# Prisma generated client
+packages/db/generated/
+
+# Terraform
+.terraform/
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+
+# Local storage shared between `next dev` and the worker container
+.local-storage/

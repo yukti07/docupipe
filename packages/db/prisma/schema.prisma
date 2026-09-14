@@ -1,0 +1,379 @@
+// Quarry — database schema.
+//
+// This package is the SINGLE OWNER of the Postgres schema (§4, §13).
+// Prisma writes the migrations; the Python worker reads and writes through
+// SQLAlchemy Core and NEVER migrates and NEVER autogenerates.
+//
+// Some constraints cannot be expressed in Prisma and live only in the
+// migration SQL. They are real and must not be dropped:
+//
+//   - users.id            format CHECK (the entropy rule, §12.1)
+//   - files               CHECK ((stage = 'FAILED') = (failure_class IS NOT NULL))
+//   - files               partial UNIQUE on (bucket, object_key)
+//   - request_outbox      partial INDEX on (next_attempt_at) WHERE status='PENDING'
+//
+// See migrations/20260915000000_init/migration.sql.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+/// requests.status — PAUSED is not an error (§12).
+enum RequestStatus {
+  COLLECTING
+  READY
+  CONVERTING
+  PAUSED
+  COMPLETED
+  FAILED
+
+  @@map("request_status")
+}
+
+/// files.stage — one column carries the whole life of a file.
+/// The Convert gate sits between SCHEMA_READY and CONVERTING.
+enum FileStage {
+  UPLOADING
+  UPLOADED
+  INSPECTING
+  SCHEMA_READY
+  CONVERTING
+  COMPLETED
+  FAILED
+
+  @@map("file_stage")
+}
+
+/// file_schema_results.stage — per TABLE, not per file (§0.7).
+enum TableStage {
+  QUEUED
+  EXTRACTING
+  FILLING
+  DONE
+  FAILED
+
+  @@map("table_stage")
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  DEAD
+
+  @@map("outbox_status")
+}
+
+/// The closed failure list — CANONICAL.
+///
+/// This must stay identical to three places, because it is product semantics
+/// that lives in two languages and therefore drifts without anyone noticing:
+///
+///   packages/web/src/lib/api/types.ts   FailureClass
+///   packages/web/src/lib/api/http.ts    KNOWN
+///   packages/worker/src/failures.py     FailureClass
+///
+/// The frontend's list won, because it was already wired through
+/// `FailureMessage`, the copy map, tone and `blocksConvert`. Three operational
+/// classes were added to it for failures that belong to the worker rather than
+/// to the document.
+///
+/// `network` and `unknown` are deliberately NOT here: they are client-side
+/// states and the server never sends them.
+enum FailureClass {
+  // acquisition
+  acquisition
+  empty_file
+  too_large
+  archive_not_expanded
+
+  // format
+  format_unsupported
+  format_corrupt
+  format_locked
+
+  // reading a shape
+  extract_empty
+  schema_not_found
+  schema_inference_failed
+
+  // the model, and the allowance
+  provider_quota_exhausted
+  provider_refused
+  response_unparseable
+  budget_exceeded
+
+  // per-value, set during verification
+  field_unresolved
+  field_unsupported_by_evidence
+  verification_failed
+
+  // API-level only — never stored on a file row
+  gate_not_met
+  merge_incompatible
+
+  // operational — the worker's own failures
+  processing_failed
+  max_attempts
+  internal
+
+  @@map("failure_class")
+}
+
+// --------------------------------------------------------------- models
+
+/// The browser-generated client id (§0.1). No username, no password, no email.
+/// Whoever holds the id holds the workspace — it is a bearer capability, and
+/// the entropy CHECK in the migration is the whole defence.
+model User {
+  id         String   @id
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  allowance UserAllowance?
+  requests  Request[]
+  files     File[]
+  events    FileEvent[]
+
+  @@map("users")
+}
+
+/// What `/api/polling/result` returns as `allowance: { used, limit, resetsAt }`,
+/// and what the Settings cap is read from.
+///
+/// Added because the UI already has `AllowanceMeter` and `RaiseCapDialog` built
+/// against those fields and there was nowhere for them to come from. This is
+/// the small, per-user form of the budget ledger — enough to answer "how much
+/// is left" and to enforce a cap BEFORE a request is issued rather than after,
+/// which is the only point at which enforcing it does anything.
+///
+/// It is not a full ledger. Per-provider, per-model spend accounting belongs
+/// with the real extraction engine; a row per user is what this phase needs.
+model UserAllowance {
+  userId String @id @map("user_id")
+
+  /// Pages consumed in the current window.
+  used Int @default(0)
+
+  /// `limit` is reserved in SQL.
+  dailyLimit Int @default(5000) @map("daily_limit")
+
+  /// When `used` returns to zero. Also what a PAUSED request resumes at.
+  resetsAt DateTime @map("resets_at") @db.Timestamptz(6)
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_allowance")
+}
+
+/// One submission. `id` is the client-generated requestId from the payload.
+model Request {
+  id     String @id
+  userId String @map("user_id")
+
+  status    RequestStatus @default(COLLECTING)
+  format    String?
+  fileCount Int           @default(0) @map("file_count")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  convertedAt DateTime? @map("converted_at") @db.Timestamptz(6)
+  pausedUntil DateTime? @map("paused_until") @db.Timestamptz(6)
+  errorCode   String?   @map("error_code")
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files         File[]
+  schemas       FileSchema[]
+  schemaResults FileSchemaResult[]
+  events        FileEvent[]
+  outbox        RequestOutbox[]
+
+  @@index([userId, createdAt(sort: Desc)], map: "requests_user_created_idx")
+  @@map("requests")
+}
+
+/// The unit of work. Carries its own stage, its own lease and its own failure.
+model File {
+  id        String @id
+  requestId String @map("request_id")
+  userId    String @map("user_id")
+
+  originalFilename    String  @map("original_filename")
+  contentType         String? @map("content_type")
+  detectedContentType String? @map("detected_content_type")
+  sizeBytes           BigInt? @map("size_bytes")
+
+  bucket     String?
+  objectKey  String? @map("object_key")
+  generation BigInt?
+  checksum   String?
+
+  /// The client's own path for the file (§0.3 fileLocation). Display only —
+  /// the server must never try to resolve it. It is a path on another machine.
+  fileLocation  String? @map("file_location")
+  zipParentName String? @map("zip_parent_name")
+
+  stage        FileStage @default(UPLOADING)
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5) @map("max_attempts")
+  claimedBy    String?   @map("claimed_by")
+  claimedUntil DateTime? @map("claimed_until") @db.Timestamptz(6)
+
+  failureClass  FailureClass? @map("failure_class")
+  failureDetail String?       @map("failure_detail")
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  uploadedAt DateTime? @map("uploaded_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  request       Request            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schemas       FileSchema[]
+  schemaResults FileSchemaResult[]
+  events        FileEvent[]
+  outbox        RequestOutbox[]
+
+  @@index([requestId], map: "files_request_idx")
+  @@index([userId, createdAt(sort: Desc)], map: "files_user_created_idx")
+  @@index([stage, claimedUntil], map: "files_reaper_idx")
+  @@map("files")
+}
+
+/// One per TABLE found inside a file. A three-sheet spreadsheet gets three.
+model FileSchema {
+  id     String @id
+  fileId String @map("file_id")
+
+  /// Denormalised from the file. `matchingFileCount` (§0.4) is scoped to a
+  /// request, so without this the count is a join plus a scan on every poll.
+  requestId String @map("request_id")
+
+  tableOrd   Int     @map("table_ord")
+  tableLabel String? @map("table_label")
+  version    Int     @default(1)
+
+  /// Array of { key, label, type, required, origin }.
+  /// type   : text | number | date | currency | boolean | list
+  /// origin : detected | added        (the UI renders the marker on "added")
+  fields Json
+
+  /// The shape as first detected. NEVER modified — this is what apply-to-all
+  /// matches against, so the affected set cannot depend on edit order (D29).
+  originalFields Json @map("original_fields")
+
+  /// Hash of originalFields, normalised and order-independent.
+  shapeHash String @map("shape_hash")
+
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  file    File              @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  request Request           @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  result  FileSchemaResult?
+
+  @@unique([fileId, tableOrd], map: "file_schemas_file_ord_uq")
+  @@index([requestId, shapeHash], map: "file_schemas_shape_idx")
+  @@map("file_schemas")
+}
+
+/// NOT IN §12 — added because /api/polling/result (§0.7) is unimplementable
+/// without it. That endpoint returns per-(fileId, schemaId) stage, rowCount,
+/// fieldCount, toCheckCount and progress, and `files.stage` is ONE column on
+/// the FILE. A three-sheet spreadsheet is one file row and three schema rows,
+/// so there is nowhere to put any of it.
+///
+/// Its `counts` must sum to the number of TABLES in the request, which is a
+/// grouped query over this table.
+model FileSchemaResult {
+  fileSchemaId String @id @map("file_schema_id")
+  fileId       String @map("file_id")
+  requestId    String @map("request_id")
+
+  stage        TableStage @default(QUEUED)
+  rowCount     Int        @default(0) @map("row_count")
+  fieldCount   Int?       @map("field_count")
+  toCheckCount Int        @default(0) @map("to_check_count")
+
+  progressUnit String? @map("progress_unit")
+  progressAt   Int?    @map("progress_at")
+  progressOf   Int?    @map("progress_of")
+
+  failureClass  FailureClass? @map("failure_class")
+  failureDetail String?       @map("failure_detail")
+
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  schema  FileSchema @relation(fields: [fileSchemaId], references: [id], onDelete: Cascade)
+  file    File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  request Request    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, stage], map: "fsr_request_stage_idx")
+  @@map("file_schema_results")
+}
+
+/// Audit trail. No longer read by the browser (SSE was removed in §0), but
+/// still what §40.3 reads and still how a support question gets answered.
+model FileEvent {
+  id        BigInt  @id @default(autoincrement())
+  requestId String  @map("request_id")
+  fileId    String? @map("file_id")
+  userId    String  @map("user_id")
+
+  /// The API request that caused this (§12.5). Distinct from requestId —
+  /// one submission produces many traces.
+  requestTraceId String? @map("request_trace_id")
+
+  eventType String  @map("event_type")
+  message   String?
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  file    File?   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, id], map: "file_events_request_idx")
+  @@index([requestTraceId], map: "file_events_trace_idx")
+  @@index([userId, createdAt(sort: Desc)], map: "file_events_user_idx")
+  @@map("file_events")
+}
+
+/// The transactional outbox (§24). Written in the SAME transaction as the
+/// thing it announces, so a job can never be durably created but not durably
+/// queued.
+model RequestOutbox {
+  id        BigInt  @id @default(autoincrement())
+  requestId String  @map("request_id")
+  fileId    String? @map("file_id")
+
+  topic   String
+  payload Json
+
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastError     String?      @map("last_error")
+  publishedAt   DateTime?    @map("published_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  file    File?   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("request_outbox")
+}

@@ -1,0 +1,119 @@
+# Local development stack.
+#
+# `docker compose up` gives a working pipeline with NO cloud account, no API
+# key and no .env editing. Storage is a directory on disk and the queue is
+# in-process, both behind the same interfaces the deployed code uses.
+#
+#   docker compose up --build
+#   docker compose run --rm migrate       # re-apply migrations on their own
+#   docker compose exec postgres psql -U quarry quarry
+#
+# To run the Next app against this stack, start compose and then, in
+# packages/web with these set (see packages/web/.env.example):
+#
+#   DATABASE_URL=postgresql://quarry:quarry@localhost:5432/quarry
+#   STORAGE_BACKEND=local
+#   LOCAL_STORAGE_ROOT=../../.local-storage     <- the SAME directory as below
+#   WORKER_URL=http://localhost:8080
+#   npm run dev
+#
+# One deliberate divergence from production, worth knowing about: in local
+# mode ONE worker container runs BOTH roles, because there is no broker to
+# route between two of them. Deployed, they are two Cloud Run services with
+# two topics and two service accounts (§26). Everything else — the lease, the
+# outbox, the sweep, the failure classes — is the same code on both paths.
+
+name: quarry
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quarry
+      POSTGRES_PASSWORD: quarry
+      POSTGRES_DB: quarry
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone returns true while the init scripts are still
+      # running, which is long enough for the migration to race it.
+      test: ["CMD-SHELL", "pg_isready -U quarry -d quarry && psql -U quarry -d quarry -c 'SELECT 1'"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Prisma owns the schema (§4, §13). The same command runs here and in
+  # production — one mechanism, so local cannot drift into being its own
+  # dialect of the schema.
+  migrate:
+    image: node:22-alpine
+    working_dir: /app/packages/db
+    command: >
+      sh -c "npm install --no-audit --no-fund --silent &&
+             npx prisma migrate deploy &&
+             echo 'migrations applied'"
+    environment:
+      DATABASE_URL: postgresql://quarry:quarry@postgres:5432/quarry
+    volumes:
+      - ./packages/db:/app/packages/db
+      - node-modules:/app/packages/db/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./packages/worker
+      dockerfile: Dockerfile
+    environment:
+      # Both roles in one process locally. The local publisher hands a
+      # message straight to the matching handler.
+      SERVICE_ROLE: both
+      DATABASE_URL: postgresql://quarry:quarry@postgres:5432/quarry
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_ROOT: /var/quarry/storage
+      PUBSUB_TOPIC_FILE_UPLOADED: file-uploaded
+      PUBSUB_TOPIC_CONVERT_REQUESTED: convert-requested
+      LEASE_SECONDS: "120"
+      LOG_LEVEL: INFO
+      GIT_SHA: local
+    ports:
+      - "8080:8080"
+    volumes:
+      # A BIND mount, not a named volume. `next dev` runs on the host and
+      # writes uploads to ./.local-storage; the worker has to read the same
+      # bytes. A named volume would give each side its own empty directory and
+      # every file would fail as `acquisition` with nothing to show for it.
+      - ./.local-storage:/var/quarry/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Cloud Scheduler's stand-in. Not optional: the sweep is the only recovery
+  # path for a failed publish, a dead worker's lease, and a request parked on
+  # a limit. Running it locally means those paths are exercised in development
+  # rather than discovered in production.
+  scheduler:
+    image: alpine:3.21
+    command: >
+      sh -c "apk add --no-cache curl >/dev/null &&
+             while true; do
+               curl -fsS -X POST http://worker:8080/internal/sweep >/dev/null || true;
+               sleep 60;
+             done"
+    depends_on:
+      worker:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  node-modules:

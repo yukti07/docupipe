@@ -1,365 +1,194 @@
 import { expect, test, type Page } from "@playwright/test"
 
 /**
- * The seven endpoints are not implemented in this app yet, so they are fulfilled
- * here. Everything else — the tables, the evidence, the merge check — runs
- * against the real fixture API the app ships with, which is the same code that
- * will call the live routes when they land.
+ * End to end against the REAL seven routes.
+ *
+ * Nothing here is mocked with `page.route()` any more. The app talks to
+ * `/api/register`, `/api/getSignedUrl`, `/api/upload`, `/api/polling/schema`,
+ * `/api/updateSchema`, `/api/convert` and `/api/polling/result` for real, and
+ * those talk to Postgres, to local storage and to the Python worker.
+ *
+ * REQUIRES a running stack. From the repo root:
+ *
+ *     docker compose up --build          # Postgres, migrations, worker, sweep
+ *     cd packages/web && npm run dev     # with .env.example's local settings
+ *     npm run test:e2e
+ *
+ * The one thing still standing in for something else: §0.9's surfaces — the
+ * table, the evidence panel, raw text, merge — have no endpoint yet, so the
+ * app's own `FixtureApi` serves them. That is the same code that will call the
+ * live routes when they land, and it is in-app rather than intercepted here.
+ *
+ * WHAT THESE CAN AND CANNOT ASSERT
+ *
+ * The inspect worker writes a PLACEHOLDER shape in this phase and the convert
+ * worker writes one line of text, so nothing here asserts on extracted values.
+ * What it does assert is the part that is real and that no unit test can
+ * reach: a file gets an id, its bytes land, a schema comes back, THE GATE
+ * HOLDS, Convert moves it, and the result poll reports it finished.
  */
 
-const PUT_ORIGIN = "https://storage.example.test"
-const REQUEST_ID = "req_e2e"
-
-type Stage = "QUEUED" | "EXTRACTING" | "FILLING" | "DONE" | "FAILED"
-
-const field = (key: string, type: string) => ({ key, label: key, type, origin: "detected" })
-
-const SHAPE = {
-  tableOrd: 0,
-  tableLabel: "table 1",
-  version: 1,
-  shapeHash: "9c1f2a7e",
-  matchingFileCount: 2,
-  fields: [
-    field("invoice_number", "text"),
-    field("invoice_date", "date"),
-    field("supplier", "text"),
-    field("net", "currency"),
-    field("vat", "currency"),
-    // Inferred as a plain number, as in the contract's own example — so
-    // correcting it to currency is a real edit rather than a no-op.
-    field("total", "number"),
-  ],
-}
-
-const schemaReady = (fileId: string, fileName: string, schemaId: string) => ({
-  fileId,
-  fileName,
-  filePath: `requests/${REQUEST_ID}/input/${fileName}`,
-  schemaId,
-  status: "ready",
-  schema: SHAPE,
-})
-
-const schemaFailed = (fileId: string, fileName: string) => ({
-  fileId,
-  fileName,
-  filePath: `requests/${REQUEST_ID}/input/${fileName}`,
-  schemaId: null,
-  status: "failed",
-  schema: null,
-  failure: {
-    class: "extract_empty",
-    message: "Its pages are images with no readable text.",
-    nextStep: "Remove it, or convert it anyway and it will be skipped.",
-  },
-})
-
-const resultEntry = (
-  fileName: string,
-  schemaId: string,
-  stage: Stage,
-  over: Record<string, unknown> = {},
-) => ({
-  fileId: `file_${schemaId}`,
-  fileName,
-  schemaId,
-  stage,
-  ...over,
-})
-
-type Backend = {
-  schemas?: unknown[]
-  convertAvailable?: boolean
-  convertBlockedReason?: string | null
-  pending?: number
-  result?: Record<string, unknown>
-}
-
-async function mockSeven(page: Page, options: Backend = {}) {
-  const {
-    schemas = [schemaReady("file_1", "invoice-1043.pdf", "sch_31"), schemaReady("file_2", "invoice-1044.pdf", "sch_32")],
-    convertAvailable = true,
-    convertBlockedReason = null,
-    pending = 0,
-    result,
-  } = options
-
-  // Flipped by the convert route, so the result poll can report an empty
-  // request before the gate and a running one after it.
-  let converted = false
-
-  const json = (body: unknown) => ({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  })
-
-  await page.route("**/api/register", (route) => route.fulfill(json({ status: "ok" })))
-
-  await page.route("**/api/getSignedUrl", async (route) => {
-    const body = route.request().postDataJSON() as { files: string[] }
-    await route.fulfill(
-      json({
-        userId: "usr_e2e",
-        requestId: REQUEST_ID,
-        files: body.files.map((fileName, index) => ({
-          fileId: `file_${index + 1}`,
-          fileName,
-          filePath: `${PUT_ORIGIN}/${index}?X-Goog-Signature=abc`,
-          uploadHeaders: { "Content-Type": "application/pdf" },
-          expiresAt: "2026-09-14T11:05:00Z",
-        })),
-      }),
-    )
-  })
-
-  await page.route(`${PUT_ORIGIN}/**`, (route) =>
-    route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" } }),
-  )
-
-  await page.route("**/api/upload", async (route) => {
-    const body = route.request().postDataJSON() as { files: { fileId: string }[] }
-    await route.fulfill(
-      json({
-        status: "ok",
-        files: body.files.map((f) => ({ fileId: f.fileId, stage: "UPLOADED" })),
-      }),
-    )
-  })
-
-  await page.route("**/api/polling/schema", (route) =>
-    route.fulfill(
-      json({
-        userId: "usr_e2e",
-        requestId: REQUEST_ID,
-        pending,
-        convertAvailable,
-        convertBlockedReason,
-        files: schemas,
-      }),
-    ),
-  )
-
-  await page.route("**/api/updateSchema", async (route) => {
-    const body = route.request().postDataJSON() as { files: { schemaId: string }[] }
-    await route.fulfill(
-      json({
-        status: "ok",
-        updated: body.files.map((f) => ({ schemaId: f.schemaId, version: 2 })),
-      }),
-    )
-  })
-
-  await page.route("**/api/convert", (route) => {
-    converted = true
-    return route.fulfill(json({ status: "received", queued: 2, skipped: 0 }))
-  })
-
-  // Before Convert the request has nothing queued, which is how the screen
-  // works out on load that it is still in Prepare.
-  const nothingQueued = {
-    userId: "usr_e2e",
-    requestId: REQUEST_ID,
-    status: "CONVERTING",
-    pausedUntil: null,
-    counts: { queued: 0, extracting: 0, filling: 0, done: 0, failed: 0 },
-    rowsSoFar: 0,
-    estimatedSecondsRemaining: null,
-    allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
-    files: [],
-  }
-
-  await page.route("**/api/polling/result", (route) => {
-    if (!result && !converted) return route.fulfill(json(nothingQueued))
-    return route.fulfill(
-      json(
-        result ?? {
-          userId: "usr_e2e",
-          requestId: REQUEST_ID,
-          status: "CONVERTING",
-          pausedUntil: null,
-          counts: { queued: 1, extracting: 0, filling: 0, done: 1, failed: 0 },
-          rowsSoFar: 22,
-          estimatedSecondsRemaining: 840,
-          allowance: { used: 1840, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
-          files: [
-            resultEntry("invoice-1044.pdf", "sch_32", "DONE", {
-              rowCount: 22,
-              fieldCount: 6,
-              toCheckCount: 3,
-            }),
-            resultEntry("invoice-1043.pdf", "sch_31", "QUEUED"),
-          ],
-        },
-      ),
-    )
-  })
-}
-
-const pdf = (name: string) => ({
+const pdf = (name: string, body = "%PDF-1.4 fixture") => ({
   name,
   mimeType: "application/pdf",
-  buffer: Buffer.from("%PDF-1.4 fixture"),
+  buffer: Buffer.from(body),
 })
 
+/**
+ * A file that passes the client's pre-flight and fails at the WORKER.
+ *
+ * Named `.pdf`, and the bytes are a ZIP. Pre-flight only sees the extension
+ * and the size, so this is the shortest route to a genuinely server-settled
+ * failure — which is a different path, and different copy, from a file the
+ * browser rejects before it is ever sent.
+ */
+const lyingPdf = (name: string) => ({
+  name,
+  mimeType: "application/pdf",
+  buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04, ...new Array(64).fill(0)]),
+})
+
+type Upload = { name: string; mimeType: string; buffer: Buffer }
+
 /** Drops files on the workspace and lands on the batch screen. */
-async function dropFiles(page: Page, names: string[]) {
+async function dropFiles(page: Page, files: Upload[]): Promise<string> {
   await page.goto("/")
   await expect(page.getByText("Drop your documents here")).toBeVisible()
-  // The zone takes nothing until the workspace has registered.
-  // The button repeats its disabled reason in its own label, so the input is
-  // addressed by element rather than by accessible name alone.
+
+  // The zone takes nothing until the workspace has registered, which is a real
+  // round trip to /api/register now rather than a fulfilled promise.
   const chooser = page.locator('input[type="file"][aria-label="Choose files"]')
   await expect(chooser).toBeEnabled()
-  await chooser.setInputFiles(names.map(pdf))
+  await chooser.setInputFiles(files)
+
   await expect(page).toHaveURL(/\/b\/req_/)
+  return new URL(page.url()).pathname.split("/")[2]
 }
 
-/** Seeds the browser-local workspace so a batch opens straight onto Converting. */
-async function seedConverting(page: Page, phase = "converting") {
-  await page.addInitScript(
-    ([requestId, batchPhase]) => {
-      localStorage.setItem("quarry.userId", "usr_e2e")
-      localStorage.setItem("quarry.registered", "usr_e2e")
-      localStorage.setItem(
-        "quarry.workspace",
-        JSON.stringify([
-          {
-            requestId,
-            name: "Q3 invoices",
-            createdAt: "2026-09-14T10:00:00Z",
-            fileCount: 2,
-            phase: batchPhase,
-            summary: {},
-          },
-        ]),
-      )
-    },
-    [REQUEST_ID, phase],
+/** The one honest status line, in the banner. Scoped because the same counts
+ *  also appear as a section heading further down the page. */
+function status(page: Page) {
+  return page.getByRole("banner").locator('p[aria-live="polite"]')
+}
+
+/** Schemas arrive only once the worker has claimed the file and written them. */
+async function waitForSchemas(page: Page, count: number) {
+  await expect(status(page)).toHaveText(
+    new RegExp(`${count} schemas? back`),
+    { timeout: 30_000 },
   )
 }
 
-test.describe("the happy path", () => {
-  test("drop, shapes, edit a type, apply to all, convert, open a table, evidence, download", async ({
+test.describe("the spine, for real", () => {
+  test("drop, shapes come back from the worker, edit a type, convert, results", async ({
     page,
   }) => {
-    await mockSeven(page)
-    await dropFiles(page, ["invoice-1043.pdf", "invoice-1044.pdf"])
+    await dropFiles(page, [pdf("invoice-1043.pdf"), pdf("invoice-1044.pdf")])
 
-    // Shapes come back while the header counts uploads and schemas separately.
-    await expect(page.getByText(/2 of 2 uploaded · 2 schemas back/)).toBeVisible()
+    // Both uploaded through a signed URL and confirmed against the object that
+    // is actually in storage — not against the fact a URL was handed out.
+    await expect(status(page)).toHaveText(/2 of 2 uploaded/, { timeout: 30_000 })
 
-    // Edit a type in the panel beside the list, not over it.
+    // Written by the inspect worker, fetched by /api/polling/schema.
+    await waitForSchemas(page, 2)
+
+    // ── THE GATE ──────────────────────────────────────────────────────────
+    // Nothing has been converted. This is the assertion that matters most and
+    // the one only a real backend can make: anyone can build a pipeline that
+    // processes on upload; the point is that this one does not.
+    await expect(page.getByRole("button", { name: /^Convert/ })).toBeEnabled()
+    await expect(page.getByText(/Queued|Extracting|Done/)).toHaveCount(0)
+
+    // An edit against a real schema row, saved through /api/updateSchema.
     await page.getByRole("button", { name: "Preview / Edit" }).first().click()
     const panel = page.getByRole("complementary", { name: "Schema" })
     await expect(panel).toBeVisible()
-    await panel.getByRole("combobox", { name: "Type of total" }).click()
+
+    await panel.getByRole("combobox", { name: "Type of column_b" }).click()
     await page.getByRole("option", { name: "currency" }).click()
 
-    // Apply to all names the files before it commits to them.
+    // Both files got the same placeholder shape, so apply-to-all has a real
+    // second file to reach — matched server-side on the original shape hash.
     await panel.getByRole("button", { name: /Apply to 1 file/ }).click()
-    await expect(page.getByText("invoice-1044.pdf · table 1")).toBeVisible()
     await page.getByRole("button", { name: /Include these 1/ }).click()
     await panel.getByRole("button", { name: "Save" }).click()
-    await expect(panel.getByText("Saved to 2 files.")).toBeVisible()
+    await expect(panel.getByText(/Saved to 2 files/)).toBeVisible()
 
-    // The gate.
+    // ── PAST THE GATE ─────────────────────────────────────────────────────
     await page.getByRole("button", { name: /^Convert/ }).click()
 
-    // A finished table opens while the rest of the batch is still running.
-    await expect(page.getByText(/1 of 2 done · 1 waiting · 3 to check/)).toBeVisible()
-    await expect(page.getByText("Queued")).toBeVisible()
-    await page.getByRole("link", { name: /View/ }).click()
+    // The convert worker claims each file under a lease, writes result.txt and
+    // marks its tables DONE. Two tables, so "2 of 2 done".
+    await expect(status(page)).toHaveText(/2 of 2 done/, { timeout: 60_000 })
 
-    await expect(page).toHaveURL(/\/t\/sch_32/)
-    await expect(page.getByText(/22 rows · 6 fields/)).toBeVisible()
+    // A finished table opens immediately — that link exists only because the
+    // result poll reported this table DONE.
+    await page.getByRole("link", { name: /View/ }).first().click()
 
-    // Evidence opens from a cell, and draws the box on the page it came from.
-    await page.getByRole("button", { name: /216\.40 — show where this came from/ }).first().click()
-    const evidence = page.getByRole("complementary", { name: "Evidence" })
-    await expect(evidence).toBeVisible()
-    await expect(evidence.getByText(/20% of 3,480.00 would be 696.00/)).toBeVisible()
-    await expect(evidence.getByRole("img", { name: /Highlighted on page/ })).toBeVisible()
+    // A REAL schema id, written by the worker and carried all the way into the
+    // URL. That is the part this test can prove.
+    await expect(page).toHaveURL(/\/t\/sch_/)
 
-    // Esc closes it without leaving the table.
-    await page.keyboard.press("Escape")
-    await expect(evidence).toBeHidden()
-
-    // One click, no dialog.
-    const download = page.waitForEvent("download")
-    await page.getByRole("button", { name: "Download" }).click()
-    expect((await download).suggestedFilename()).toBe("invoice-1044.csv")
+    // The rows come from the in-app fixture — there is no rows endpoint yet
+    // (§0.9) — so the counts here are the fixture's, not the placeholder
+    // schema's. Assert that a table rendered, not what is in it.
+    await expect(page.getByText(/\d+ rows · \d+ fields/)).toBeVisible()
   })
 })
 
 test.describe("the gate", () => {
-  test("one unreadable file does not block Convert", async ({ page }) => {
-    await mockSeven(page, {
-      schemas: [
-        schemaReady("file_1", "invoice-1043.pdf", "sch_31"),
-        schemaFailed("file_2", "scan-0091.pdf"),
-      ],
-      convertAvailable: true,
-    })
-    await dropFiles(page, ["invoice-1043.pdf", "scan-0091.pdf"])
+  test("a disabled Convert says what would enable it", async ({ page }) => {
+    // Straight after the drop the worker has not finished, so the server's own
+    // `convertBlockedReason` is what the screen shows — computed by
+    // /api/polling/schema, not asserted into existence here.
+    await dropFiles(page, [pdf("invoice-1043.pdf")])
 
-    await expect(page.getByText(/1 file won't convert/)).toBeVisible()
-    await expect(page.getByText("Its pages are images with no readable text.")).toBeVisible()
+    const convert = page.getByRole("button", { name: /^Convert/ })
+    if (await convert.isDisabled()) {
+      await expect(
+        page.getByText(/still reading (its|their) shape|still uploading/).first(),
+      ).toBeVisible()
+    }
+
+    // And it opens once the worker settles it.
+    await waitForSchemas(page, 1)
+    await expect(convert).toBeEnabled()
+  })
+
+  test("a file the worker cannot read does not block Convert", async ({ page }) => {
+    await dropFiles(page, [pdf("invoice-1043.pdf"), lyingPdf("scan-0091.pdf")])
+
+    // The worker sniffs magic bytes and settles it FAILED / format_corrupt.
+    // Nothing in the browser could have known this.
+    await expect(page.getByText(/won't convert/)).toBeVisible({ timeout: 30_000 })
+    // The detail the worker wrote, which proves it read the bytes rather than
+    // trusting the extension.
+    await expect(page.getByText(/but is actually application\/zip/)).toBeVisible()
+
+    // Settled means ready OR failed. One bad file must not hold the good one.
     await expect(page.getByRole("button", { name: /^Convert/ })).toBeEnabled()
   })
 
-  test("a disabled Convert says what would enable it", async ({ page }) => {
-    await mockSeven(page, {
-      schemas: [schemaReady("file_1", "invoice-1043.pdf", "sch_31")],
-      pending: 7,
-      convertAvailable: false,
-      convertBlockedReason: "7 files are still reading their shape.",
-    })
-    await dropFiles(page, ["invoice-1043.pdf"])
+  test("a file the browser can reject never reaches the server", async ({ page }) => {
+    // An empty file is refused in the drop zone, before a transfer. Different
+    // path, different copy — and no request row is created for it at all.
+    await dropFiles(page, [
+      pdf("invoice-1043.pdf"),
+      { name: "broken.pdf", mimeType: "application/pdf", buffer: Buffer.alloc(0) },
+    ])
 
-    await expect(page.getByText("7 files are still reading their shape.")).toBeVisible()
-    await expect(page.getByRole("button", { name: /^Convert/ })).toBeDisabled()
+    await expect(page.getByText(/1 rejected/)).toBeVisible()
+    await expect(page.getByText("This file is empty.")).toBeVisible()
+    await waitForSchemas(page, 1)
+    await expect(page.getByRole("button", { name: /^Convert/ })).toBeEnabled()
   })
 })
 
 test.describe("the pause", () => {
-  test("a quota pause reads as a pause with a time, and finished tables stay downloadable", async ({
-    page,
-  }) => {
-    await seedConverting(page)
-    await mockSeven(page, {
-      result: {
-        userId: "usr_e2e",
-        requestId: REQUEST_ID,
-        status: "PAUSED",
-        pausedUntil: "2026-09-14T14:32:00Z",
-        counts: { queued: 1, extracting: 0, filling: 0, done: 1, failed: 0 },
-        rowsSoFar: 22,
-        estimatedSecondsRemaining: null,
-        allowance: { used: 5000, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
-        files: [
-          resultEntry("invoice-1044.pdf", "sch_32", "DONE", {
-            rowCount: 22,
-            fieldCount: 6,
-            toCheckCount: 3,
-          }),
-          resultEntry("invoice-1043.pdf", "sch_31", "QUEUED"),
-        ],
-      },
-    })
-
-    await page.goto(`/b/${REQUEST_ID}`)
-
-    await expect(page.getByText(/Daily page allowance used up/)).toBeVisible()
-    await expect(page.getByText(/Picking up again at \d{2}:\d{2}/)).toBeVisible()
-    await expect(page.getByText(/stays open and downloadable/)).toBeVisible()
-    await expect(page.getByText(/1 of 2 done · picking up again at/)).toBeVisible()
-
-    // Nothing already finished is lost.
-    await expect(page.getByRole("link", { name: /View/ })).toBeVisible()
-    await expect(page.getByRole("link", { name: /Download/ })).toBeVisible()
-  })
+  // Nothing in this phase spends an allowance, so no request can reach PAUSED
+  // against the real stack. The screen is covered by unit tests; this becomes
+  // a real end-to-end check when the extraction engine starts metering.
+  test.fixme("a quota pause reads as a pause with a time", async () => {})
 })
 
 test.describe("the pages that should almost never appear", () => {

@@ -125,6 +125,24 @@ export const FAILURES: Record<FailureClass, FailureCopy> = {
     tone: "error",
     blocksConvert: false,
   },
+  processing_failed: {
+    message: "Something went wrong working through this one.",
+    nextStep: "Retry it; the rest of the batch is unaffected.",
+    tone: "error",
+    blocksConvert: false,
+  },
+  max_attempts: {
+    message: "This one failed repeatedly, so we stopped trying.",
+    nextStep: "Remove it, or upload it again.",
+    tone: "error",
+    blocksConvert: false,
+  },
+  internal: {
+    message: "Something went wrong on our side.",
+    nextStep: "Retry it — we've logged what happened.",
+    tone: "error",
+    blocksConvert: false,
+  },
   network: {
     message: "Couldn't reach the server.",
     nextStep: "Check your connection — we'll keep trying.",

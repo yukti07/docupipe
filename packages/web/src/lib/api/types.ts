@@ -32,6 +32,11 @@ export type FailureClass =
   | "gate_not_met"
   | "empty_file"
   | "archive_not_expanded"
+  /* operational — the worker's own failures, not the document's */
+  | "processing_failed"
+  | "max_attempts"
+  | "internal"
+  /* client-only; never sent by the server */
   | "network"
   | "unknown"
 

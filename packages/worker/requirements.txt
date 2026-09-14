@@ -1,0 +1,12 @@
+# Runtime dependencies only. No document libraries, no model clients, no OCR —
+# this phase does none of that, and every dependency is one more thing in the
+# image and one more thing to keep patched.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+
+google-cloud-storage==2.19.0
+google-cloud-pubsub==2.27.1

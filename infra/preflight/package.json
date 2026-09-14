@@ -1,0 +1,21 @@
+{
+  "name": "@quarry/gcp-preflight",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proves real connectivity and IAM against a deployed GCP project. Detached from the application.",
+  "bin": { "quarry-preflight": "./preflight.mjs" },
+  "scripts": {
+    "preflight": "node preflight.mjs",
+    "preflight:read-only": "node preflight.mjs --read-only",
+    "preflight:tf": "node preflight.mjs --from-terraform"
+  },
+  "dependencies": {
+    "@google-cloud/cloud-sql-connector": "^1.4.0",
+    "@google-cloud/pubsub": "^4.9.0",
+    "@google-cloud/secret-manager": "^5.6.0",
+    "@google-cloud/storage": "^7.14.0",
+    "google-auth-library": "^9.15.0",
+    "pg": "^8.13.1"
+  }
+}
