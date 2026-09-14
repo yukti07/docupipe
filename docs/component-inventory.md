@@ -95,7 +95,7 @@ Generic, reusable, and deliberately ignorant of the product's domain.
 | C07 | **`GatedButton`** | **A button that explains why it's disabled** | `enabled` · `disabled-with-reason` | S02 S09 S10 |
 | C08 | **`KeyHint`** | Shows a keyboard key — `Esc`, `Enter` | Single key, key sequence | S03 S11 |
 | C09 | **`ConfirmDialog`** | Confirm something costly | `default` · `destructive` | S06 S12 |
-| C10 | **`SplitPane`** | List on the left, detail panel on the right | `closed` · `open` · resizable · sheet below 1024px | S02 S04 S06 |
+| C10 | **`SplitPane`** | List on the left, detail panel on the right | `closed` · `open` · full-width sheet below 1024px. `Esc` closes it | S02 S04 S06 |
 
 **`LoadingState` exists to make the no-bare-spinner rule structural.** If loading always goes
 through a component that requires a label, it becomes impossible to ship a wordless spinner by
@@ -123,7 +123,8 @@ These know about Quarry.
 | D01 | **`DropZone`** | Drag target and file picker in one | `idle` · `dragging` · `dragging-invalid` · `disabled`. States the accepted formats and size cap inside itself |
 | D02 | **`FileRow`** | One file and everything about it | `staged` · `checking` · `rejected` · `uploading` · `failed` · `uploaded` · `reading-shape` · `shape-ready` · `no-shape` · `unreadable`. Owns its own retry |
 | D03 | **`FileList`** | The list of `FileRow`s, plus the summary | — |
-| D04 | **`ConvertBar`** | The footer: Review schemas, Convert, and their reasons | `blocked` · `ready` · `converting` |
+| D04 | **`ConvertBar`** | The footer: Review schemas, Convert, and their reasons | `blocked` · `ready` · `converting`. A refused gate re-states the server's reason rather than showing a generic error |
+| D40 | **`WontConvertPanel`** | Names the files that settled without a shape, and says they do not block Convert | Hidden when there are none |
 
 **`FileRow` is used on two screens with different trailing controls** — Preview / Edit on S02, View
 and Download on S04. One component with a trailing slot, not two components. Building it twice is
@@ -140,6 +141,7 @@ how the two screens drift apart.
 | D09 | **`ApplyToAllControl`** | Propagate this schema, with the count in its label | `unavailable` · `offered` · `confirming` · `applied` |
 | D10 | **`SchemaCard`** | One schema in the all-files view and the merge picker | `ready` · `edited` · `shared-with-n` · `failed` |
 | D11 | **`SchemaGroupList`** | Schemas grouped by identical shape, with counts | — |
+| D41 | **`FieldTypeSelect`** | The six types, as the one editable control on a field row | `text` · `number` · `date` · `currency` · `yes/no` · `list` |
 
 **`SchemaFieldRow` must render the field name as plainly non-editable** — mono, no input chrome, no
 hover affordance. A greyed-out rename control would be worse than nothing: an affordance that never
@@ -157,8 +159,13 @@ reveals the affected file names first.
 | D13 | **`PausedBanner`** | Waiting on a limit, with the resume time | `quota` · `user-cap` |
 | D14 | **`StageColumn`** | One processing stage with its documents (P1) | `idle` · `active` |
 | D15 | **`ProviderChainStrip`** | The provider chain, one link greyed (P1) | `live` · `spent` · `unavailable` |
+| D42 | **`PipelineStrip`** | Four stage counts that always sum to the batch total, failures included | Two stages lit at once; motion only under `motion-safe` |
+| D43 | **`TableList`** | The per-table rows on the processing screen | Order fixed — a finished row gains View and Download in place |
+| D44 | **`AllowanceMeter`** | Pages used against the daily limit, in the header on every screen | With and without *Raise the cap* |
+| D45 | **`AppHeader`** | The 58px bar: the product, the allowance meter, the workspace link | — |
 
-Per-file status on S04 is `FileRow` (D02), not a separate component.
+Per-file status on S04 is `FileRow` (D02), not a separate component. The pipeline strip is **P0** and
+lives on the processing screen itself — the machine view (S05) is not built.
 
 ### Tables — S01, S06
 
@@ -169,6 +176,8 @@ Per-file status on S04 is `FileRow` (D02), not a separate component.
 | D18 | **`MarkedCellReason`** | Why this cell is amber, inline in the table | One per verification rule |
 | D19 | **`BatchCard`** | A batch on the workspace | `awaiting-schemas` · `converting` · `paused` · `finished` · `finished-with-failures` · `failed` |
 | D20 | **`DensityToggle`** | Comfortable ↔ compact | — |
+| D46 | **`MarkedCellNav`** | *"2 of 3"* with previous and next through the marked cells | Moves the selection **and** the evidence panel together |
+| D47 | **`RawTextView`** | The text as it came off the page, before fields | The canvas's replacement for the machine view |
 
 **`DataCell` renders a merged table's rows unchanged.** A merged table is a `DataTable` with one
 extra source-file column, not a new component — which is what keeps evidence working across the
@@ -195,7 +204,7 @@ format later means adding one view, not touching the panel.
 
 | ID | Component | Purpose | States |
 |---|---|---|---|
-| D29 | **`DownloadFileButton`** | One file's table, one click, no dialog | `idle` · `preparing` · `failed` |
+| D29 | **`DownloadTableButton`** | One file's table, one click, no dialog | `idle` · `preparing` · `failed` |
 | D30 | **`DownloadAllDialog`** | Format choice and the honest counts | `idle` · `warning` · `preparing` · `done` · `failed` · `nothing-to-download` |
 
 The asymmetry is deliberate and must survive refactoring: per-file is one click because the user is
@@ -206,8 +215,10 @@ contains first.
 
 | ID | Component | Purpose | States |
 |---|---|---|---|
-| D31 | **`MergePicker`** | The dialog: schema groups, selection, the check | `empty` · `compatible` · `incompatible` · `merging` · `merged` · `failed` |
-| D32 | **`MergeConflict`** | Names the table, the field and the disagreement | Rendered **on the offending `SchemaCard`**, not only in a summary |
+| D31 | **`MergePicker`** | The **page**: schema groups, selection, the check | `empty` · `compatible` · `incompatible` · `merging` · `merged` · `failed` |
+| D32 | **`MergeConflict`** | Names the table, the field and the disagreement | Rendered **on the offending card**, not only in a summary |
+| D48 | **`MergeGroupCard`** | One shape and every table that has it, with a group checkbox | A partial pick shows a dash, not a tick |
+| D49 | **`MergeSummary`** | What you'll get — tables, rows, cells to check — before you press | Carries the gated Merge button |
 
 **`MergeConflict` goes on the card**, not just at the bottom of the dialog. The user needs to see
 *which* selection is the problem, not only that there is one.
@@ -240,6 +251,14 @@ is amber is the same sentence whether you meet it in the table or in the queue.
 | D37 | **`FailureMessage`** | **Turns a failure class into a sentence and a next step** | The single place a failure becomes text |
 | D38 | **`ConnectionStatus`** | Live updates lost, reconnecting, offline | Global |
 | D39 | **`WakingUpState`** | The cold-start pause, named (P1) | Wraps `LoadingState` |
+| D50 | **`DropZone`** | Drag target and two real file inputs, one of them `webkitdirectory` | Both inputs are disabled with the zone, so the keyboard path cannot swallow a drop |
+
+Two hooks carry the rules the components cannot:
+
+| Hook | Purpose |
+|---|---|
+| **`usePoll`** | One poll loop for both polling endpoints — fires immediately, backs off after a minute, aborts in flight on unmount, and **keeps the last good state when a poll fails** |
+| **`useAsync`** | One keyed fetch, whose result is only shown when it belongs to the key being asked about now — so switching tables is a wait, never a stale answer |
 
 **`FailureMessage` is the one to get right.** Every failure class maps to its copy in exactly one
 component. That's what makes "no raw error string ever reaches the user" a structural property
@@ -317,7 +336,7 @@ Roughly the order these become necessary, which is also roughly the safest order
 
 ```
 1. Primitives + StatusBadge, LoadingState, GatedButton,
-   EmptyState, ErrorState, PageHeader, SplitPane
+   EmptyState, ErrorState, PageHeader, SplitPane, KeyHint
 2. DropZone, FileRow, FileList                            → uploading works
 3. SchemaEditor, SchemaFieldRow, FieldTypeSelect,
    AddFieldControl, SchemaCard                            → S03 works

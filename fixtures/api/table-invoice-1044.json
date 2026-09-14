@@ -1,0 +1,825 @@
+{
+  "requestId": "req_01KABC",
+  "schemaId": "sch_32",
+  "fileId": "file_7001",
+  "fileName": "invoice-1044.pdf",
+  "tableLabel": "table 1",
+  "pageRange": "1–3",
+  "fields": [
+    {
+      "key": "invoice_number",
+      "label": "invoice_number",
+      "type": "text",
+      "origin": "detected"
+    },
+    {
+      "key": "invoice_date",
+      "label": "invoice_date",
+      "type": "date",
+      "origin": "detected"
+    },
+    {
+      "key": "supplier",
+      "label": "supplier",
+      "type": "text",
+      "origin": "detected"
+    },
+    {
+      "key": "net",
+      "label": "net",
+      "type": "currency",
+      "origin": "detected"
+    },
+    {
+      "key": "vat",
+      "label": "vat",
+      "type": "currency",
+      "origin": "detected"
+    },
+    {
+      "key": "total",
+      "label": "total",
+      "type": "currency",
+      "origin": "detected"
+    }
+  ],
+  "rows": [
+    {
+      "recordId": "rec_1",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r1_invoice_number",
+          "display": "INV-1044",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r1_invoice_date",
+          "display": "2026-01-01",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r1_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r1_net",
+          "display": "1240.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r1_vat",
+          "display": "248.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r1_total",
+          "display": "1488.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_2",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r2_invoice_number",
+          "display": "INV-1045",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r2_invoice_date",
+          "display": "2026-02-02",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r2_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r2_net",
+          "display": "1427.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r2_vat",
+          "display": "285.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r2_total",
+          "display": "1713.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_3",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r3_invoice_number",
+          "display": "INV-1046",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r3_invoice_date",
+          "display": "",
+          "state": "not-found"
+        },
+        "supplier": {
+          "valueId": "val_r3_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r3_net",
+          "display": "1615.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r3_vat",
+          "display": "323.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r3_total",
+          "display": "1938.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_4",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r4_invoice_number",
+          "display": "INV-1047",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r4_invoice_date",
+          "display": "2026-04-04",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r4_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r4_net",
+          "display": "3480.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r4_vat",
+          "display": "216.40",
+          "state": "marked",
+          "reason": "20% of 3,480.00 would be 696.00. The page says 216.40, and that is what was recorded."
+        },
+        "total": {
+          "valueId": "val_r4_total",
+          "display": "3696.40",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_5",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r5_invoice_number",
+          "display": "INV-1048",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r5_invoice_date",
+          "display": "2026-05-05",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r5_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r5_net",
+          "display": "3480.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r5_vat",
+          "display": "216.40",
+          "state": "marked",
+          "reason": "20% of 3,480.00 would be 696.00. The page says 216.40, and that is what was recorded."
+        },
+        "total": {
+          "valueId": "val_r5_total",
+          "display": "3696.40",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_6",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r6_invoice_number",
+          "display": "INV-1049",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r6_invoice_date",
+          "display": "2026-06-06",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r6_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r6_net",
+          "display": "2177.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r6_vat",
+          "display": "435.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r6_total",
+          "display": "2613.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_7",
+      "failed": {
+        "class": "field_unresolved",
+        "message": "The scan is cut off at the right edge, so the numbers are missing rather than wrong.",
+        "nextStep": "Re-scan this page with the full width, or leave the row out."
+      },
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r7_invoice_number",
+          "display": "INV-1050",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r7_invoice_date",
+          "display": "",
+          "state": "not-found"
+        },
+        "supplier": {
+          "valueId": "val_r7_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r7_net",
+          "display": "",
+          "state": "not-found"
+        },
+        "vat": {
+          "valueId": "val_r7_vat",
+          "display": "",
+          "state": "not-found"
+        },
+        "total": {
+          "valueId": "val_r7_total",
+          "display": "",
+          "state": "not-found"
+        }
+      }
+    },
+    {
+      "recordId": "rec_8",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r8_invoice_number",
+          "display": "INV-1051",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r8_invoice_date",
+          "display": "2026-08-08",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r8_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r8_net",
+          "display": "2552.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r8_vat",
+          "display": "510.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r8_total",
+          "display": "3063.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_9",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r9_invoice_number",
+          "display": "INV-1052",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r9_invoice_date",
+          "display": "2026-09-09",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r9_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r9_net",
+          "display": "2740.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r9_vat",
+          "display": "548.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r9_total",
+          "display": "3288.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_10",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r10_invoice_number",
+          "display": "INV-1053",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r10_invoice_date",
+          "display": "2026-01-10",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r10_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r10_net",
+          "display": "2927.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r10_vat",
+          "display": "585.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r10_total",
+          "display": "3513.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_11",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r11_invoice_number",
+          "display": "INV-1054",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r11_invoice_date",
+          "display": "2026-02-11",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r11_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r11_net",
+          "display": "3115.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r11_vat",
+          "display": "623.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r11_total",
+          "display": "3738.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_12",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r12_invoice_number",
+          "display": "INV-1055",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r12_invoice_date",
+          "display": "2026-03-12",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r12_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r12_net",
+          "display": "3302.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r12_vat",
+          "display": "660.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r12_total",
+          "display": "3963.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_13",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r13_invoice_number",
+          "display": "INV-1056",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r13_invoice_date",
+          "display": "2026-04-13",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r13_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r13_net",
+          "display": "3490.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r13_vat",
+          "display": "698.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r13_total",
+          "display": "4188.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_14",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r14_invoice_number",
+          "display": "INV-1057",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r14_invoice_date",
+          "display": "2026-05-14",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r14_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r14_net",
+          "display": "3677.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r14_vat",
+          "display": "735.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r14_total",
+          "display": "4413.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_15",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r15_invoice_number",
+          "display": "INV-1058",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r15_invoice_date",
+          "display": "2026-06-15",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r15_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r15_net",
+          "display": "3865.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r15_vat",
+          "display": "773.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r15_total",
+          "display": "4638.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_16",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r16_invoice_number",
+          "display": "INV-1059",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r16_invoice_date",
+          "display": "2026-07-16",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r16_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r16_net",
+          "display": "4052.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r16_vat",
+          "display": "810.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r16_total",
+          "display": "4863.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_17",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r17_invoice_number",
+          "display": "INV-1060",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r17_invoice_date",
+          "display": "2026-08-17",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r17_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r17_net",
+          "display": "4240.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r17_vat",
+          "display": "848.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r17_total",
+          "display": "5088.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_18",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r18_invoice_number",
+          "display": "INV-1061",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r18_invoice_date",
+          "display": "2026-09-18",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r18_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r18_net",
+          "display": "4427.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r18_vat",
+          "display": "885.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r18_total",
+          "display": "5313.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_19",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r19_invoice_number",
+          "display": "INV-1062",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r19_invoice_date",
+          "display": "2026-01-19",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r19_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r19_net",
+          "display": "4615.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r19_vat",
+          "display": "923.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r19_total",
+          "display": "5538.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_20",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r20_invoice_number",
+          "display": "INV-1063",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r20_invoice_date",
+          "display": "2026-02-20",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r20_supplier",
+          "display": "Northgate Paper",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r20_net",
+          "display": "4802.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r20_vat",
+          "display": "960.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r20_total",
+          "display": "5763.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_21",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r21_invoice_number",
+          "display": "INV-1064",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r21_invoice_date",
+          "display": "2026-03-21",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r21_supplier",
+          "display": "Velle Chemicals",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r21_net",
+          "display": "4990.00",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r21_vat",
+          "display": "998.00",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r21_total",
+          "display": "5988.00",
+          "state": "value"
+        }
+      }
+    },
+    {
+      "recordId": "rec_22",
+      "values": {
+        "invoice_number": {
+          "valueId": "val_r22_invoice_number",
+          "display": "INV-1065",
+          "state": "value"
+        },
+        "invoice_date": {
+          "valueId": "val_r22_invoice_date",
+          "display": "2026-04-22",
+          "state": "value"
+        },
+        "supplier": {
+          "valueId": "val_r22_supplier",
+          "display": "Ferro Castings Ltd",
+          "state": "value"
+        },
+        "net": {
+          "valueId": "val_r22_net",
+          "display": "5177.50",
+          "state": "value"
+        },
+        "vat": {
+          "valueId": "val_r22_vat",
+          "display": "1035.50",
+          "state": "value"
+        },
+        "total": {
+          "valueId": "val_r22_total",
+          "display": "6213.00",
+          "state": "value"
+        }
+      }
+    }
+  ]
+}

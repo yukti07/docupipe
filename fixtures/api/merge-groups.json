@@ -1,0 +1,264 @@
+[
+  {
+    "shapeHash": "9c1f2a7e",
+    "name": "Invoice totals",
+    "fields": [
+      {
+        "key": "invoice_number",
+        "label": "invoice_number",
+        "type": "text",
+        "origin": "detected"
+      },
+      {
+        "key": "invoice_date",
+        "label": "invoice_date",
+        "type": "date",
+        "origin": "detected"
+      },
+      {
+        "key": "supplier",
+        "label": "supplier",
+        "type": "text",
+        "origin": "detected"
+      },
+      {
+        "key": "net",
+        "label": "net",
+        "type": "currency",
+        "origin": "detected"
+      },
+      {
+        "key": "vat",
+        "label": "vat",
+        "type": "currency",
+        "origin": "detected"
+      },
+      {
+        "key": "total",
+        "label": "total",
+        "type": "currency",
+        "origin": "detected"
+      }
+    ],
+    "members": [
+      {
+        "schemaId": "sch_30",
+        "fileId": "file_7000",
+        "fileName": "invoice-1043.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 8,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_31",
+        "fileId": "file_7001",
+        "fileName": "invoice-1044.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 22,
+        "toCheckCount": 3,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_32",
+        "fileId": "file_7002",
+        "fileName": "invoice-1045.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 14,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_33",
+        "fileId": "file_7003",
+        "fileName": "invoice-1046.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 17,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_34",
+        "fileId": "file_7004",
+        "fileName": "invoice-1047.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 20,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_35",
+        "fileId": "file_7005",
+        "fileName": "invoice-1048.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 23,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_36",
+        "fileId": "file_7006",
+        "fileName": "invoice-1049.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 9,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_37",
+        "fileId": "file_7007",
+        "fileName": "invoice-1050.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 12,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_38",
+        "fileId": "file_7008",
+        "fileName": "invoice-1051.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 15,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_39",
+        "fileId": "file_7009",
+        "fileName": "invoice-1052.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 18,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_40",
+        "fileId": "file_7010",
+        "fileName": "invoice-1053.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 21,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_41",
+        "fileId": "file_7011",
+        "fileName": "invoice-1054.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 24,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_42",
+        "fileId": "file_7012",
+        "fileName": "invoice-1055.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 10,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_43",
+        "fileId": "file_7013",
+        "fileName": "invoice-1056.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 13,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_44",
+        "fileId": "file_7014",
+        "fileName": "invoice-1057.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 16,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_45",
+        "fileId": "file_7015",
+        "fileName": "invoice-1058.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 19,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_46",
+        "fileId": "file_7016",
+        "fileName": "invoice-1059.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 22,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_47",
+        "fileId": "file_7017",
+        "fileName": "invoice-1060.pdf",
+        "tableLabel": "table 1",
+        "rowCount": 8,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:41:00Z"
+      },
+      {
+        "schemaId": "sch_totals_a",
+        "fileId": "file_7f0",
+        "fileName": "credit-notes.xlsx",
+        "tableLabel": "Sheet 1 · Totals",
+        "rowCount": 9,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:42:00Z"
+      }
+    ]
+  },
+  {
+    "shapeHash": "4b7e0d31",
+    "name": "Line items",
+    "fields": [
+      {
+        "key": "invoice_number",
+        "label": "invoice_number",
+        "type": "number",
+        "origin": "detected"
+      },
+      {
+        "key": "description",
+        "label": "description",
+        "type": "text",
+        "origin": "detected"
+      },
+      {
+        "key": "quantity",
+        "label": "quantity",
+        "type": "number",
+        "origin": "detected"
+      },
+      {
+        "key": "unit_price",
+        "label": "unit_price",
+        "type": "currency",
+        "origin": "detected"
+      },
+      {
+        "key": "line_total",
+        "label": "line_total",
+        "type": "currency",
+        "origin": "detected"
+      }
+    ],
+    "members": [
+      {
+        "schemaId": "sch_lines_b",
+        "fileId": "file_7f0",
+        "fileName": "credit-notes.xlsx",
+        "tableLabel": "Sheet 2 · Line items",
+        "rowCount": 37,
+        "toCheckCount": 1,
+        "convertedAt": "2026-09-14T10:42:00Z"
+      }
+    ]
+  }
+]

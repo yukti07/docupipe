@@ -49,21 +49,31 @@ Values are `oklch`, matching the shadcn token setup already in the project.
 
 ### Light
 
+The v2 design canvas is newer than this document, and where they disagreed the canvas won.
+These are the values in `packages/web/src/app/globals.css`, which is the one place they live.
+
 | Token | Value | Used for |
 |---|---|---|
-| **Primary** | `oklch(0.52 0.17 258)` | Interactive things, focus, links — **and the evidence highlight** |
+| **Primary** | `oklch(0.52 0.11 172)` | Interactive things, focus, links — **and the evidence highlight**. Teal, not blue |
 | Primary foreground | `oklch(0.99 0 0)` | Text on primary |
-| **Background** | `oklch(0.99 0.002 90)` | The page — a warm off-white, not pure white |
-| **Surface** | `oklch(1 0 0)` | Cards, panels, the table — white, lifting off the page |
-| **Border** | `oklch(0.91 0.004 85)` | Dividers, input outlines, table rules |
-| Foreground | `oklch(0.21 0.01 80)` | Body text |
-| Muted foreground | `oklch(0.52 0.01 80)` | Secondary text, and **"not found"** |
-| **Success** | `oklch(0.62 0.14 155)` | Finished. Used sparingly — success is the default, not an event |
-| **Warning / Review** | `oklch(0.70 0.15 75)` | **Reserved:** a cell worth checking. Nothing else |
-| **Error** | `oklch(0.58 0.22 27)` | **Reserved:** something actually failed |
-| **Paused** | `oklch(0.58 0.06 240)` | **Reserved:** waiting on a limit, resuming later |
+| **Canvas** | `oklch(0.955 0.003 260)` | Behind the page — a cool grey the cards lift off |
+| **Background** | `oklch(0.985 0.002 260)` | The page |
+| **Surface** | `oklch(1 0 0)` | Cards, panels, the table — white |
+| **Border** | `oklch(0.90 0.006 260)` | Dividers, input outlines, table rules |
+| Foreground | `oklch(0.22 0.012 260)` | Body text |
+| Muted foreground | `oklch(0.52 0.012 260)` | Secondary text, and **"not found"** |
+| **Success** | `oklch(0.52 0.11 172)` | The accent itself. Finished is not an event, so it gets no colour of its own |
+| **Warning / Review** | `oklch(0.45 0.10 65)` | **Reserved:** a cell worth checking. Nothing else |
+| **Error** | `oklch(0.53 0.165 27)` | **Reserved:** something actually failed |
+| **Paused** | `oklch(0.50 0.06 250)` | **Reserved:** waiting on a limit, resuming later |
 
-### Dark
+The neutrals are **cool** (hue 260), not the warm 85 this document first specified. A finished
+chip is `StatusBadge variant="neutral"`, never a green one.
+
+### Dark — P2, not built
+
+The canvas is light only, so the `.dark` block in `globals.css` is left in place and unused. These
+values are the starting point for when dark mode is picked up, not something the app reads today.
 
 | Token | Value |
 |---|---|
@@ -175,19 +185,24 @@ scale.
 
 ### Two screens are split views, and they use the same pattern
 
-**S02 Upload & Schema**
+**S02 + S03 — one Prepare screen, two phases**
+
+S02 and S03 are a single route, `/b/[requestId]`. While files are going up it is a file table;
+once shapes land it is a list of schema cards, with the editor in a 460px panel beside it. The
+panel is 460px on Prepare and 440px on the table screen — the schema editor holds a form, the
+evidence panel holds a page.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│  Header — batch name · "12 of 50 shapes ready"         │
+│  Header — "Prepare" · "41 of 41 uploaded · 39 back"    │
 ├────────────────────────────────────────────────────────┤
 │                              │                         │
-│   Drop zone                  │   Schema editor         │
-│   + file rows                │   (slides in on         │
+│   File rows, then            │   Schema editor         │
+│   schema cards               │   (opens on             │
 │   (fills the space)          │    Preview / Edit)      │
 │                              │                         │
 ├────────────────────────────────────────────────────────┤
-│  Footer — [Review schemas]            [Convert · 50]   │
+│  Footer — [Review schemas]            [Convert · 41]   │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -197,15 +212,21 @@ scale.
 ┌────────────────────────────────────────────────────────┐
 │  Header — batch name · the honest status sentence      │
 ├────────────────────────────────────────────────────────┤
+│  Pipeline — Queued · Extracting · Filling · Done       │
+├────────────────────────────────────────────────────────┤
 │                              │                         │
 │   File rows, or one          │   Evidence              │
 │   file's table               │   (slides in on         │
 │   (fills the space)          │    cell click)          │
 │                              │                         │
 ├────────────────────────────────────────────────────────┤
-│  Footer — row count · density · [Download all] [Merge] │
+│  Summary row — rows so far · [Merge] [Download all]    │
 └────────────────────────────────────────────────────────┘
 ```
+
+**The pipeline strip is P0**, and it lives on the Processing screen itself rather than in a
+separate machine view. Four stage counts and three connectors; the counts always sum to the number
+of tables in the batch, failures included.
 
 **The two side panels behave identically**, and that's on purpose — once you've learned that
 clicking a thing on the left opens detail on the right without losing your place, you've learned it
@@ -261,8 +282,10 @@ decoration.
 the fraction; a labelled indeterminate state where we don't (*"Reading this file"*, *"Waking up"*).
 A spinner with no words is a refusal to say what's happening.
 
-**Modal** — for destructive confirmation, Download all and the Merge picker only. Never for
-evidence, never for the schema editor, never for anything you need to see the list behind.
+**Modal** — for destructive confirmation and Download all only. Never for evidence, never for the
+schema editor, never for the merge picker, never for anything you need to see the list behind.
+**Merge is a full page** (`/b/[requestId]/merge`), because the picker has to show every finished
+table with its fields and a conflict can land on any card.
 
 **Toast** — transient confirmations only ("Schema saved to 12 files"). **Never used for errors**,
 because errors need to persist until they're dealt with and a toast disappears. Bottom-right, 4s,
@@ -320,17 +343,19 @@ shown only when other files originally matched. Pressing it reveals the affected
 committing; it never applies straight from the button. The count is the whole value of the feature,
 so it lives in the label rather than in a tooltip.
 
-**Status sentence** — the single line in the header. Mono numerals, plain prose, updating live.
+**Status sentence** — the single line in the header. Mono numerals, plain prose, updating live off
+the result poll — there is no SSE; progress arrives by polling (backend contract §0.4 and §0.7).
 *"127 of 200 done · 61 waiting · 8 to check · 4 failed."* It must read true in every state, including
 paused and total failure. On S02 it counts shapes instead: *"12 of 50 shapes ready."*
 
 **Evidence panel** — header naming the source file and location, the rendered source, the highlight.
 Slides in over 200ms; the highlight draws over 400ms after it lands. Read-only.
 
-**Merge picker** — schema groups as cards, each carrying its shape and a count (*"31 tables · Invoice
-No, Date, Total"*), selectable in one click per group or individually. An incompatible selection
-puts the error **on the offending card**, not only in a summary at the bottom — the user needs to
-see which one is the problem, not just that there is one.
+**Merge picker** — a full page, not a dialog. Schema groups as cards, each carrying its shape and a
+count (*"31 tables · Invoice No, Date, Total"*), selectable in one click per group or individually,
+with a summary panel beside them saying what you will get before you press. An incompatible
+selection puts the error **on the offending card**, not only in a summary at the bottom — the user
+needs to see which one is the problem, not just that there is one.
 
 **Insight card** (P1) — a chart, one sentence, and a link through to the rows behind it. The link is
 mandatory: a card that can't cite its rows is not rendered, which is a rule enforced in the
@@ -341,6 +366,13 @@ the live one in primary.
 
 **Stage column** (P1) — one column per processing stage, documents as small chips moving between
 them.
+
+**Raw text view** — the text as it came off the page, before any of it became fields. This is what
+the machine view (S05) was for; it is a per-table tab on the file result screen rather than a
+screen of its own, and S05 is not built.
+
+**Rejected archives** — a `.zip` is refused in the drop zone with *"unzip it first"* rather than
+being expanded in the browser. One bad file never rejects the drop; the rest carry on.
 
 ---
 

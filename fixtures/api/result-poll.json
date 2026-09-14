@@ -1,0 +1,346 @@
+{
+  "userId": "usr_9f3a1c7b2e4d8a6150c3b7e29d4f8a1b",
+  "requestId": "req_01KABC",
+  "status": "CONVERTING",
+  "pausedUntil": null,
+  "counts": {
+    "queued": 19,
+    "extracting": 1,
+    "filling": 1,
+    "done": 18,
+    "failed": 2
+  },
+  "rowsSoFar": 291,
+  "estimatedSecondsRemaining": 840,
+  "allowance": {
+    "used": 1840,
+    "limit": 5000,
+    "resetsAt": "2026-09-15T00:00:00Z"
+  },
+  "files": [
+    {
+      "fileId": "file_7000",
+      "fileName": "invoice-1043.pdf",
+      "schemaId": "sch_30",
+      "stage": "DONE",
+      "rowCount": 8,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7001",
+      "fileName": "invoice-1044.pdf",
+      "schemaId": "sch_31",
+      "stage": "DONE",
+      "rowCount": 22,
+      "fieldCount": 6,
+      "toCheckCount": 3
+    },
+    {
+      "fileId": "file_7002",
+      "fileName": "invoice-1045.pdf",
+      "schemaId": "sch_32",
+      "stage": "DONE",
+      "rowCount": 14,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7003",
+      "fileName": "invoice-1046.pdf",
+      "schemaId": "sch_33",
+      "stage": "DONE",
+      "rowCount": 17,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7004",
+      "fileName": "invoice-1047.pdf",
+      "schemaId": "sch_34",
+      "stage": "DONE",
+      "rowCount": 20,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7005",
+      "fileName": "invoice-1048.pdf",
+      "schemaId": "sch_35",
+      "stage": "DONE",
+      "rowCount": 23,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7006",
+      "fileName": "invoice-1049.pdf",
+      "schemaId": "sch_36",
+      "stage": "DONE",
+      "rowCount": 9,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7007",
+      "fileName": "invoice-1050.pdf",
+      "schemaId": "sch_37",
+      "stage": "DONE",
+      "rowCount": 12,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7008",
+      "fileName": "invoice-1051.pdf",
+      "schemaId": "sch_38",
+      "stage": "DONE",
+      "rowCount": 15,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7009",
+      "fileName": "invoice-1052.pdf",
+      "schemaId": "sch_39",
+      "stage": "DONE",
+      "rowCount": 18,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7010",
+      "fileName": "invoice-1053.pdf",
+      "schemaId": "sch_40",
+      "stage": "DONE",
+      "rowCount": 21,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7011",
+      "fileName": "invoice-1054.pdf",
+      "schemaId": "sch_41",
+      "stage": "DONE",
+      "rowCount": 24,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7012",
+      "fileName": "invoice-1055.pdf",
+      "schemaId": "sch_42",
+      "stage": "DONE",
+      "rowCount": 10,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7013",
+      "fileName": "invoice-1056.pdf",
+      "schemaId": "sch_43",
+      "stage": "DONE",
+      "rowCount": 13,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7014",
+      "fileName": "invoice-1057.pdf",
+      "schemaId": "sch_44",
+      "stage": "DONE",
+      "rowCount": 16,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7015",
+      "fileName": "invoice-1058.pdf",
+      "schemaId": "sch_45",
+      "stage": "DONE",
+      "rowCount": 19,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7016",
+      "fileName": "invoice-1059.pdf",
+      "schemaId": "sch_46",
+      "stage": "DONE",
+      "rowCount": 22,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7017",
+      "fileName": "invoice-1060.pdf",
+      "schemaId": "sch_47",
+      "stage": "DONE",
+      "rowCount": 8,
+      "fieldCount": 6,
+      "toCheckCount": 0
+    },
+    {
+      "fileId": "file_7018",
+      "fileName": "invoice-1061.pdf",
+      "schemaId": "sch_48",
+      "stage": "EXTRACTING",
+      "progress": {
+        "unit": "page",
+        "at": 2,
+        "of": 3
+      },
+      "rowCount": 11
+    },
+    {
+      "fileId": "file_7019",
+      "fileName": "invoice-1062.pdf",
+      "schemaId": "sch_49",
+      "stage": "FILLING",
+      "progress": {
+        "unit": "row",
+        "at": 6,
+        "of": 14
+      },
+      "rowCount": 14
+    },
+    {
+      "fileId": "file_7020",
+      "fileName": "invoice-1063.pdf",
+      "schemaId": "sch_50",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7021",
+      "fileName": "invoice-1064.pdf",
+      "schemaId": "sch_51",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7022",
+      "fileName": "invoice-1065.pdf",
+      "schemaId": "sch_52",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7023",
+      "fileName": "invoice-1066.pdf",
+      "schemaId": "sch_53",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7024",
+      "fileName": "invoice-1067.pdf",
+      "schemaId": "sch_54",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7025",
+      "fileName": "invoice-1068.pdf",
+      "schemaId": "sch_55",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7026",
+      "fileName": "invoice-1069.pdf",
+      "schemaId": "sch_56",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7027",
+      "fileName": "invoice-1070.pdf",
+      "schemaId": "sch_57",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7028",
+      "fileName": "invoice-1071.pdf",
+      "schemaId": "sch_58",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7029",
+      "fileName": "invoice-1072.pdf",
+      "schemaId": "sch_59",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7030",
+      "fileName": "invoice-1073.pdf",
+      "schemaId": "sch_60",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7031",
+      "fileName": "invoice-1074.pdf",
+      "schemaId": "sch_61",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7032",
+      "fileName": "invoice-1075.pdf",
+      "schemaId": "sch_62",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7033",
+      "fileName": "invoice-1076.pdf",
+      "schemaId": "sch_63",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7034",
+      "fileName": "invoice-1077.pdf",
+      "schemaId": "sch_64",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7035",
+      "fileName": "invoice-1078.pdf",
+      "schemaId": "sch_65",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7036",
+      "fileName": "invoice-1079.pdf",
+      "schemaId": "sch_66",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7037",
+      "fileName": "invoice-1080.pdf",
+      "schemaId": "sch_67",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7038",
+      "fileName": "invoice-1081.pdf",
+      "schemaId": "sch_68",
+      "stage": "QUEUED"
+    },
+    {
+      "fileId": "file_7039",
+      "fileName": "scan-0091.pdf",
+      "schemaId": "sch_69",
+      "stage": "FAILED",
+      "rowCount": 0,
+      "failure": {
+        "class": "format_locked",
+        "message": "Password-protected, so its pages can't be opened.",
+        "nextStep": "Remove the password and upload it again."
+      }
+    },
+    {
+      "fileId": "file_7040",
+      "fileName": "scan-0092.pdf",
+      "schemaId": "sch_70",
+      "stage": "FAILED",
+      "rowCount": 0,
+      "failure": {
+        "class": "format_locked",
+        "message": "Password-protected, so its pages can't be opened.",
+        "nextStep": "Remove the password and upload it again."
+      }
+    }
+  ]
+}
