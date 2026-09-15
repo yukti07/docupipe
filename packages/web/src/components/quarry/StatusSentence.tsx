@@ -50,21 +50,3 @@ export function StatusSentence({
     </p>
   )
 }
-
-/** S02 counts shapes instead of tables. */
-export function shapesSentence({
-  uploaded,
-  total,
-  schemas,
-  failed,
-}: {
-  uploaded: number
-  total: number
-  schemas: number
-  failed: number
-}): string {
-  const parts = [`${formatCount(uploaded)} of ${formatCount(total)} uploaded`]
-  parts.push(`${formatCount(schemas)} ${schemas === 1 ? "schema" : "schemas"} back`)
-  if (failed > 0) parts.push(`${formatCount(failed)} without a shape`)
-  return parts.join(" · ")
-}

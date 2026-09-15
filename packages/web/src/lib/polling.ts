@@ -16,6 +16,10 @@ export type PollState<T> = {
   failure: Failure | null
   /** True once a first response — good or bad — has come back. */
   settled: boolean
+  /** True when the loop gave up on its budget of polls rather than finishing. */
+  exhausted: boolean
+  /** True when the loop is no longer running — settled, or out of budget. */
+  stopped: boolean
   refresh: () => void
 }
 
@@ -24,6 +28,13 @@ type PollOptions<T> = {
   enabled?: boolean
   /** Called with each response; returning true stops the loop. */
   stopWhen?: (data: T) => boolean
+  /** A budget, so a server that never settles cannot poll forever. */
+  maxPolls?: number
+  /**
+   * Hold off the FIRST poll this long. For work that is known to take minutes,
+   * asking straight away only produces a run of answers nobody needed.
+   */
+  initialDelayMs?: number
   /** Overrides the standard cadence, for the 30 s a PAUSED batch uses. */
   intervalFor?: (data: T | null, elapsedMs: number) => number
   onData?: (data: T) => void
@@ -39,11 +50,15 @@ export function usePoll<T>(
   poll: (signal: AbortSignal) => Promise<T>,
   options: PollOptions<T> = {},
 ): PollState<T> {
-  const { enabled = true, stopWhen, intervalFor, onData } = options
+  const { enabled = true, stopWhen, maxPolls, initialDelayMs, intervalFor, onData } = options
 
   const [data, setData] = useState<T | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
   const [settled, setSettled] = useState(false)
+  // Which attempt ran out of budget, and which one stopped, so a refresh clears
+  // both without a synchronous reset on the way into the effect.
+  const [exhaustedAt, setExhaustedAt] = useState<number | null>(null)
+  const [stoppedAt, setStoppedAt] = useState<number | null>(null)
   const [attempt, setAttempt] = useState(0)
 
   // Effect events, so a new closure identity on any of these never restarts the
@@ -59,6 +74,7 @@ export function usePoll<T>(
     if (!enabled) return
 
     let live = true
+    let polls = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController()
     const startedAt = Date.now()
@@ -71,6 +87,7 @@ export function usePoll<T>(
     }
 
     async function run() {
+      polls += 1
       try {
         const next = await runPoll(controller.signal)
         if (!live) return
@@ -79,26 +96,47 @@ export function usePoll<T>(
         setFailure(null)
         setSettled(true)
         emit(next)
-        if (shouldStop(next)) return
+        if (shouldStop(next)) {
+          setStoppedAt(attempt)
+          return
+        }
       } catch (error) {
         if (!live || controller.signal.aborted) return
         // The last good response stays on screen; the failure sits beside it.
         setFailure(error instanceof ApiError ? error.failure : { class: "unknown" })
         setSettled(true)
       }
-      if (live) timer = setTimeout(run, wait())
+      if (!live) return
+      // Out of budget. The screen has to say so rather than spin on quietly.
+      if (maxPolls !== undefined && polls >= maxPolls) {
+        setExhaustedAt(attempt)
+        setStoppedAt(attempt)
+        return
+      }
+      timer = setTimeout(run, wait())
     }
 
-    void run()
+    if (initialDelayMs && initialDelayMs > 0) {
+      timer = setTimeout(run, initialDelayMs)
+    } else {
+      void run()
+    }
 
     return () => {
       live = false
       controller.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [enabled, attempt])
+  }, [enabled, attempt, maxPolls, initialDelayMs])
 
   const refresh = useCallback(() => setAttempt((n) => n + 1), [])
 
-  return { data, failure, settled, refresh }
+  return {
+    data,
+    failure,
+    settled,
+    exhausted: exhaustedAt === attempt,
+    stopped: stoppedAt === attempt,
+    refresh,
+  }
 }

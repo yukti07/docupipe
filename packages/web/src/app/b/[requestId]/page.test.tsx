@@ -56,7 +56,15 @@ function mockBackend({
   pending = 0,
   result,
 }: SchemaPollOptions = {}) {
-  const seen = { signed: 0, puts: [] as string[], confirmed: [] as unknown[], converts: 0 }
+  const seen = {
+    signed: 0,
+    puts: [] as string[],
+    confirmed: [] as unknown[],
+    converts: 0,
+    results: 0,
+    schemaPolls: 0,
+    uploadCalls: [] as number[],
+  }
 
   server.use(
     http.post("/api/register", () => HttpResponse.json({ status: "ok" })),
@@ -82,21 +90,23 @@ function mockBackend({
     http.post("/api/upload", async ({ request }) => {
       const body = (await request.json()) as { files: { fileId: string }[] }
       seen.confirmed.push(...body.files)
+      seen.uploadCalls.push(body.files.length)
       return HttpResponse.json({
         status: "ok",
         files: body.files.map((f) => ({ fileId: f.fileId, stage: "UPLOADED" })),
       })
     }),
-    http.post("/api/polling/schema", () =>
-      HttpResponse.json({
+    http.post("/api/polling/schema", () => {
+      seen.schemaPolls += 1
+      return HttpResponse.json({
         userId: "usr_1",
         requestId: REQUEST,
         pending,
         convertAvailable,
         convertBlockedReason,
         files: entries,
-      }),
-    ),
+      })
+    }),
     http.post("/api/updateSchema", async ({ request }) => {
       const body = (await request.json()) as { files: { schemaId: string }[] }
       return HttpResponse.json({
@@ -110,8 +120,9 @@ function mockBackend({
     }),
     // The probe that asks the server which phase this batch is in. Empty means
     // nothing has been queued for conversion yet.
-    http.post("/api/polling/result", () =>
-      HttpResponse.json(
+    http.post("/api/polling/result", () => {
+      seen.results += 1
+      return HttpResponse.json(
         result ?? {
           userId: "usr_1",
           requestId: REQUEST,
@@ -123,8 +134,8 @@ function mockBackend({
           allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
           files: [],
         },
-      ),
-    ),
+      )
+    }),
   )
 
   return seen
@@ -175,12 +186,28 @@ describe("the prepare screen", () => {
     expect(seen.puts.sort()).toEqual(["0", "1"])
   })
 
-  it("counts uploads and shapes as two clocks in the header", async () => {
+  it("confirms each file as its own bytes land, not once the last one does", async () => {
+    const seen = mockBackend()
+    stageForRequest(
+      REQUEST,
+      stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf"), file("invoice-1045.pdf")]),
+    )
+    await renderBatch()
+
+    await waitFor(() => expect(seen.confirmed).toHaveLength(3))
+    // Three calls of one file each — so the first file's shape is being read
+    // while the third is still going up.
+    expect(seen.uploadCalls).toEqual([1, 1, 1])
+  })
+
+  it("counts uploads and shapes as two clocks on the footer", async () => {
     mockBackend()
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf")]))
     await renderBatch()
 
-    expect(await screen.findByText(/2 of 2 uploaded · 1 schema back/)).toBeVisible()
+    expect(await screen.findByText("2 of 2 uploaded")).toBeVisible()
+    // One entry came back for one of the two files, so one file has its shape.
+    expect(screen.getByText("1 of 2 schemas back")).toBeVisible()
   })
 
   it("keeps a rejected file on screen with its reason, and uploads the rest", async () => {
@@ -192,14 +219,12 @@ describe("the prepare screen", () => {
     await waitFor(() => expect(seen.confirmed).toHaveLength(1))
   })
 
-  it("keeps Preview / Edit present but gated until that file's shape lands", async () => {
+  it("keeps the eye present but gated while that file's schema is still coming", async () => {
     mockBackend({ entries: [], pending: 2, convertAvailable: false, convertBlockedReason: "2 files are still reading their shape." })
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     await renderBatch()
 
-    expect(
-      await screen.findByRole("button", { name: /Preview \/ Edit.*Still reading this file/ }),
-    ).toBeDisabled()
+    expect(await screen.findByRole("button", { name: "Loading schema" })).toBeDisabled()
   })
 
   it("opens the schema in a panel beside the list, not over it", async () => {
@@ -207,7 +232,7 @@ describe("the prepare screen", () => {
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     const { user } = await renderBatch()
 
-    await user.click(await screen.findByRole("button", { name: "Preview / Edit" }))
+    await user.click(await screen.findByRole("button", { name: "Open schema" }))
     const panel = screen.getByRole("complementary", { name: "Schema" })
     expect(within(panel).getByText("invoice_number")).toBeVisible()
     // The list is still there beside it.
@@ -224,8 +249,13 @@ describe("the prepare screen", () => {
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     await renderBatch()
 
-    expect(await screen.findByText("7 files are still reading their shape.")).toBeVisible()
-    expect(screen.getByRole("button", { name: /^Convert/ })).toBeDisabled()
+    // The reason rides on the disabled button rather than being printed again
+    // beside the counts the footer already carries.
+    expect(
+      await screen.findByRole("button", {
+        name: /Convert.*7 files are still reading their shape/,
+      }),
+    ).toBeDisabled()
   })
 
   it("converts once the gate is met, and moves the batch on", async () => {
@@ -258,9 +288,7 @@ describe("the prepare screen", () => {
     await renderBatch()
 
     expect(
-      await screen.findByRole("button", {
-        name: /Preview \/ Edit — No table was found in this file/,
-      }),
+      await screen.findByRole("button", { name: "No table was found in this file" }),
     ).toBeDisabled()
   })
 
@@ -307,7 +335,7 @@ describe("the prepare screen", () => {
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf")]))
     const { user } = await renderBatch()
 
-    await user.click((await screen.findAllByRole("button", { name: "Preview / Edit" }))[0])
+    await user.click((await screen.findAllByRole("button", { name: "Open schema" }))[0])
     const panel = screen.getByRole("complementary", { name: "Schema" })
 
     await user.click(within(panel).getByRole("combobox", { name: "Type of total" }))
@@ -330,6 +358,74 @@ describe("the prepare screen", () => {
     }
   })
 
+  it("retries only the row whose Retry was pressed", async () => {
+    const seen = mockBackend()
+    let refused = false
+    server.use(
+      http.put(`${PUT_URL}/:n`, ({ params }) => {
+        const which = String(params.n)
+        seen.puts.push(which)
+        if (which === "0" && !refused) {
+          refused = true
+          return new HttpResponse(null, { status: 500 })
+        }
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf")]))
+    const { user } = await renderBatch()
+
+    const retry = await screen.findByRole("button", { name: "Retry" })
+    seen.puts.length = 0
+    await user.click(retry)
+
+    await waitFor(() => expect(seen.puts).toEqual(["0"]))
+  })
+
+  it("drops a batch whose every row was discarded, rather than leaving an empty card", async () => {
+    mockBackend()
+    server.use(http.put(`${PUT_URL}/:n`, () => new HttpResponse(null, { status: 500 })))
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { user } = await renderBatch("prepare")
+
+    await user.click(await screen.findByRole("button", { name: "Discard them" }))
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("quarry.workspace")!)).toEqual([]))
+    expect(router.push).toHaveBeenCalledWith("/")
+  })
+
+  it("leaves a failed row its Retry and nothing else to press", async () => {
+    mockBackend()
+    server.use(http.put(`${PUT_URL}/:n`, () => new HttpResponse(null, { status: 500 })))
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderBatch()
+
+    expect(await screen.findByText("Upload failed")).toBeVisible()
+    expect(screen.queryByRole("button", { name: /Open schema|Loading schema/ })).not.toBeInTheDocument()
+  })
+
+  it("gives a many-table file one eye, and opens every table behind it", async () => {
+    mockBackend({
+      entries: [
+        schemaEntry({ schemaId: "sch_1", schema: { ...schemaEntry().schema!, tableLabel: "table 1" } }),
+        schemaEntry({ schemaId: "sch_2", schema: { ...schemaEntry().schema!, tableLabel: "table 2" } }),
+        schemaEntry({ schemaId: "sch_3", schema: { ...schemaEntry().schema!, tableLabel: "table 3" } }),
+      ],
+    })
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { user } = await renderBatch()
+
+    const eye = await screen.findByRole("button", { name: "Open 3 tables" })
+    // One row, one eye — never one button per table.
+    expect(screen.getAllByRole("button", { name: /Open 3 tables/ })).toHaveLength(1)
+    expect(await screen.findByText(/· 3 tables/)).toBeVisible()
+
+    await user.click(eye)
+    const panel = screen.getByRole("complementary", { name: "Schema" })
+    expect(within(panel).getAllByRole("tab")).toHaveLength(3)
+    expect(within(panel).getByRole("tab", { name: "table 3" })).toBeVisible()
+  })
+
   it("shows the files that landed before a reload, without their bytes", async () => {
     mockBackend()
     localStorage.setItem(
@@ -349,8 +445,78 @@ describe("the prepare screen", () => {
 
     expect((await screen.findAllByText("invoice-1043.pdf")).length).toBeGreaterThan(0)
     expect(screen.queryByText("Nothing staged in this browser")).not.toBeInTheDocument()
-    // Its shape is already being read on the server, so it settles from the poll.
-    expect(await screen.findByText("Shape ready")).toBeVisible()
+    // Its shape is already being read on the server, so it settles from the
+    // poll — and the eye, not the row, is what says so.
+    expect(await screen.findByRole("button", { name: "Open schema" })).toBeEnabled()
+  })
+
+  it("does not poll for schemas before the server has been told the request exists", async () => {
+    const seen = mockBackend()
+    // Signing is what creates the request row; until it answers there is
+    // nothing on the other end and the poll can only 500.
+    server.use(
+      http.post("/api/getSignedUrl", () => HttpResponse.json({ error: "nope" }, { status: 500 })),
+    )
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderBatch()
+
+    expect(await screen.findByText("Upload failed")).toBeVisible()
+    expect(seen.schemaPolls).toBe(0)
+  })
+
+  it("does not ask the server which phase a batch it just staged is in", async () => {
+    const seen = mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderBatch("prepare")
+
+    // The schema poll runs; the result poll has no business here until Convert.
+    await waitFor(() => expect(seen.confirmed).toHaveLength(1))
+    expect(seen.results).toBe(0)
+  })
+
+  it("waits out the two minutes before asking how a batch it just converted is doing", async () => {
+    const seen = mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { user } = await renderBatch("prepare")
+
+    await user.click(await screen.findByRole("button", { name: /^Convert/ }))
+    await waitFor(() => expect(seen.converts).toBe(1))
+
+    // The probe is skipped for a batch this browser staged, and the result
+    // poll is holding: nothing has asked the server how it is going.
+    await waitFor(() => expect(screen.getByText("Converting")).toBeVisible())
+    expect(seen.results).toBe(0)
+  })
+
+  it("asks straight away about a batch it did not convert itself", async () => {
+    const seen = mockBackend({
+      result: {
+        userId: "usr_1",
+        requestId: REQUEST,
+        status: "CONVERTING",
+        pausedUntil: null,
+        counts: { queued: 1, extracting: 0, filling: 0, done: 1, failed: 0 },
+        rowsSoFar: 22,
+        estimatedSecondsRemaining: null,
+        allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
+        files: [
+          {
+            fileId: "file_1",
+            fileName: "invoice-1044.pdf",
+            schemaId: "sch_32",
+            stage: "DONE",
+            rowCount: 22,
+            fieldCount: 6,
+          },
+          { fileId: "file_2", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+        ],
+      },
+    })
+    // No note in this browser at all, so there is no wait of ours to serve out.
+    await renderBatch()
+
+    expect(await screen.findByText(/1 of 2 done/)).toBeVisible()
+    expect(seen.results).toBeGreaterThan(0)
   })
 
   it("opens on Converting when the server says the request was queued, note or no note", async () => {

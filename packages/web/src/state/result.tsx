@@ -7,15 +7,27 @@ import { writeAllowance } from "@/lib/allowance"
 import { usePoll, type PollState } from "@/lib/polling"
 import { useAsync } from "@/lib/useAsync"
 
-/** §0.7's cadence: 2 s while converting, 30 s while paused, stop when it ends. */
+/**
+ * The result cadence, pinned for now: nothing for the first two minutes,
+ * because a batch that has just been queued has nothing to report yet, then
+ * every 5 s for ten minutes. A paused batch keeps its own slower beat.
+ */
+export const RESULT_FIRST_POLL_MS = 120_000
+export const RESULT_POLL_MS = 5000
+export const RESULT_POLL_MAX = 120
 export const PAUSED_POLL_MS = 30_000
 
 export function useResultPolling(
   requestId: string,
   userId: string | null,
-  options: { enabled?: boolean; onData?: (data: ResultPollResponse) => void } = {},
+  options: {
+    enabled?: boolean
+    /** 0 for a batch this browser did not just convert — see the Converting screen. */
+    initialDelayMs?: number
+    onData?: (data: ResultPollResponse) => void
+  } = {},
 ): PollState<ResultPollResponse> {
-  const { enabled = true, onData } = options
+  const { enabled = true, initialDelayMs, onData } = options
 
   return usePoll<ResultPollResponse>(
     useCallback(
@@ -25,7 +37,9 @@ export function useResultPolling(
     {
       enabled: Boolean(userId) && enabled,
       stopWhen: (data) => data.status === "COMPLETED" || data.status === "FAILED",
-      intervalFor: (data) => (data?.status === "PAUSED" ? PAUSED_POLL_MS : 2000),
+      maxPolls: RESULT_POLL_MAX,
+      initialDelayMs,
+      intervalFor: (data) => (data?.status === "PAUSED" ? PAUSED_POLL_MS : RESULT_POLL_MS),
       onData: (data) => {
         // The header meter is on every screen, but the figure only arrives here.
         writeAllowance(data.allowance)

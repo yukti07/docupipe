@@ -15,6 +15,8 @@ from src.storage import output_key
 
 from .conftest import get_file, seed_file, seed_schema
 
+CSV = ("invoice,total" + chr(10) + "A-1,10" + chr(10)).encode()
+
 pytestmark = pytest.mark.usefixtures("engine")
 
 
@@ -61,6 +63,50 @@ def test_inspect_writes_a_schema_and_stops_at_the_gate(
 
     # The gate: nothing was converted, and no output object exists.
     assert not tmp_storage.stat(output_key("req_test_0001", "file_a")).exists
+
+
+def test_a_shape_that_lands_after_convert_carries_straight_on(
+    engine, inspect_cfg, tmp_storage, null_publisher
+):
+    """Convert was pressed while this file was still being inspected.
+
+    Nobody presses it twice. The file goes to CONVERTING as its shape settles,
+    with its own convert message queued in the same transaction.
+    """
+    key = seed_file(engine, file_id="file_late", stage="UPLOADED", content_type="text/plain")
+    tmp_storage.write(key, CSV, content_type="text/plain")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE requests SET converted_at = now(), status = 'CONVERTING' "
+                "WHERE id = :id"
+            ),
+            {"id": "req_test_0001"},
+        )
+
+    pipeline.handle("file_late", inspect_cfg)
+
+    assert get_file(engine, "file_late")["stage"] == "CONVERTING"
+
+    with engine.begin() as conn:
+        queued = conn.execute(
+            text(
+                "SELECT topic FROM request_outbox WHERE file_id = :id ORDER BY id DESC LIMIT 1"
+            ),
+            {"id": "file_late"},
+        ).scalar()
+    assert queued == inspect_cfg.topic_convert_requested
+
+
+def test_a_shape_landing_without_convert_still_stops_at_the_gate(
+    engine, inspect_cfg, tmp_storage, null_publisher
+):
+    key = seed_file(engine, file_id="file_early", stage="UPLOADED", content_type="text/plain")
+    tmp_storage.write(key, CSV, content_type="text/plain")
+
+    pipeline.handle("file_early", inspect_cfg)
+
+    assert get_file(engine, "file_early")["stage"] == "SCHEMA_READY"
 
 
 def test_inspect_seeds_a_result_row_per_table(

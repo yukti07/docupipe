@@ -19,12 +19,14 @@ import logging
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
-from . import health, logging_setup, pipeline, sweep
+from . import health, logging_setup, pipeline, subscriber, sweep
 from .config import get_config
 from .publisher import LocalPublisher, get_publisher
 from .pubsub_handler import InvalidEnvelope, parse
 
 log = logging.getLogger(__name__)
+
+_subscriber: subscriber.PullSubscriber | None = None
 
 cfg = get_config()
 logging_setup.configure(cfg.log_level)
@@ -57,6 +59,21 @@ def _startup() -> None:
         publisher.register(cfg.topic_file_uploaded, _handle_local_delivery)
         publisher.register(cfg.topic_convert_requested, _handle_local_delivery)
         log.info("local publisher wired to both topics")
+
+    # Real Pub/Sub, but nothing can push to this process: open a streaming
+    # pull instead. Same parser, same pipeline — only the transport differs.
+    if cfg.pubsub_delivery == "pull":
+        global _subscriber
+        _subscriber = subscriber.PullSubscriber(cfg)
+        _subscriber.start()
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    global _subscriber
+    if _subscriber is not None:
+        _subscriber.stop()
+        _subscriber = None
 
 
 def _handle_local_delivery(file_id: str) -> None:

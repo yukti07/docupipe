@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { use, useEffect, useState } from "react"
 import { EmptyState } from "@/components/common/EmptyState"
 import { GatedButton } from "@/components/common/GatedButton"
@@ -11,13 +12,15 @@ import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { ConvertBar } from "@/components/quarry/ConvertBar"
 import { DownloadAllDialog } from "@/components/quarry/DownloadAllDialog"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
+import { FileActions } from "@/components/quarry/FileActions"
 import { FileList } from "@/components/quarry/FileList"
 import { FileRow, type FileRowState } from "@/components/quarry/FileRow"
+import { FileSchemaPanel } from "@/components/quarry/FileSchemaPanel"
 import { PausedBanner } from "@/components/quarry/PausedBanner"
 import { PipelineStrip } from "@/components/quarry/PipelineStrip"
-import { SchemaEditor } from "@/components/quarry/SchemaEditor"
 import { SchemaGroupList } from "@/components/quarry/SchemaGroupList"
-import { StatusSentence, shapesSentence } from "@/components/quarry/StatusSentence"
+import { SchemaEyeButton, type SchemaEyeState } from "@/components/quarry/SchemaEyeButton"
+import { StatusSentence } from "@/components/quarry/StatusSentence"
 import { TableList } from "@/components/quarry/TableList"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
@@ -26,7 +29,12 @@ import { formatCount } from "@/lib/format"
 import { applyToAllTargets, type SchemaState } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch, type BatchFile } from "@/state/batch"
-import { useConversionProbe, useResultPolling } from "@/state/result"
+import { forgetFiles } from "@/state/batchFiles"
+import {
+  RESULT_FIRST_POLL_MS,
+  useConversionProbe,
+  useResultPolling,
+} from "@/state/result"
 import { useWorkspace } from "@/state/workspace"
 
 const UPLOAD_STAGE: Record<BatchFile["stage"], FileRowState> = {
@@ -61,7 +69,10 @@ export default function BatchPage({ params }: PageProps<"/b/[requestId]">) {
   // request. A probe that finds work queued promotes the screen even when this
   // browser has no note. It never demotes — a single failed or empty response
   // must not throw someone out of a batch they know has converted.
-  const probe = useConversionProbe(requestId, userId)
+  // Only ask the server which phase this is when this browser cannot answer.
+  // Any note at all — Prepare or Converting — is this browser's own record of
+  // what it did, and asking adds nothing to it.
+  const probe = useConversionProbe(requestId, batch ? null : userId)
   const converting = probe === "started" || noted
 
   useEffect(() => {
@@ -69,7 +80,12 @@ export default function BatchPage({ params }: PageProps<"/b/[requestId]">) {
   }, [noted, probe, requestId, updateBatch])
 
   return converting ? (
-    <Converting requestId={requestId} userId={userId} onPhase={updateBatch} />
+    <Converting
+      requestId={requestId}
+      userId={userId}
+      convertedAt={batch?.convertedAt}
+      onPhase={updateBatch}
+    />
   ) : (
     <Prepare requestId={requestId} userId={userId} onPhase={updateBatch} />
   )
@@ -91,12 +107,16 @@ function Prepare({
   onPhase: PhaseWriter
 }) {
   const batch = useBatch(requestId, userId)
-  const [openSchemaId, setOpenSchemaId] = useState<string | null>(null)
+  const router = useRouter()
+  const { removeBatch } = useWorkspace()
+  // Keyed by file, never by table: one row opens one panel, whatever it holds.
+  const [openFileId, setOpenFileId] = useState<string | null>(null)
   const [showAllSchemas, setShowAllSchemas] = useState(false)
   const [converting, setConverting] = useState(false)
   const [convertFailure, setConvertFailure] = useState<Failure | null>(null)
 
-  const open = batch.schemas.find((s) => s.schemaId === openSchemaId) ?? null
+  const openFile = batch.files.find((f) => f.fileId && f.fileId === openFileId) ?? null
+  const openSchemas = batch.schemas.filter((s) => s.fileId === openFileId)
   const uploadDone = batch.files.length > 0 && !batch.uploading
   const showSchemas = showAllSchemas || (uploadDone && batch.schemas.length > 0)
 
@@ -109,47 +129,55 @@ function Prepare({
       setConvertFailure(result.failure)
       return
     }
-    onPhase(requestId, { phase: "converting" })
+    // The moment it was pressed, so the result poll can wait out the rest of
+    // its two minutes even if the page is reloaded halfway through.
+    onPhase(requestId, { phase: "converting", convertedAt: new Date().toISOString() })
   }
 
-  const rejectedCount = batch.files.filter((file) => file.stage === "rejected").length
+  const totalBytes = batch.files.reduce((sum, file) => sum + file.size, 0)
 
-  const summary = shapesSentence({
+  // Discarding the last row leaves a batch with nothing in it, and a card for
+  // an empty batch is a promise the workspace cannot keep.
+  function discardFailed() {
+    if (batch.discardFailed() > 0) return
+    forgetFiles(requestId)
+    removeBatch(requestId)
+    router.push("/")
+  }
+
+  // Files, not tables: a file that held ten tables is one shape coming back.
+  const filesWithShape = new Set(batch.schemas.map((s) => s.fileId)).size
+  const progress = {
     uploaded: batch.uploadedCount,
     total: batch.acceptedCount,
-    schemas: batch.schemas.length,
-    failed: batch.wontConvert.length,
-  })
+    schemas: filesWithShape,
+    withoutShape: batch.wontConvert.length,
+    uploading: batch.uploading,
+    inFlight: batch.files.filter((f) => f.stage === "uploading" || f.stage === "checking").length,
+    fraction: uploadFraction(batch.files),
+  }
 
   return (
     <>
       <AppHeader userId={userId}>
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-medium">Prepare</p>
-          {/* Shapes landing and uploads finishing are announced, never focused. */}
-          <p
-            aria-live="polite"
-            className="truncate text-[12px] tabular-nums text-muted-foreground"
-          >
-            {summary}
-          </p>
-        </div>
+        {/* The counts live on the footer now, beside the bar they belong to. */}
+        <p className="truncate text-[13px] font-medium">Prepare</p>
       </AppHeader>
 
       <SplitPane
         className="flex-1"
         panelWidth={460}
         panelLabel="Schema"
-        onClose={() => setOpenSchemaId(null)}
+        onClose={() => setOpenFileId(null)}
         panel={
-          open ? (
-            <SchemaEditor
-              schema={open}
-              fileName={open.fileName}
-              applyTargets={applyToAllTargets(batch.schemas, open)}
-              onClose={() => setOpenSchemaId(null)}
-              onSave={(fields, alsoApplyTo) =>
-                batch.saveSchema(open.schemaId, fields, alsoApplyTo)
+          openFileId && openSchemas.length > 0 ? (
+            <FileSchemaPanel
+              fileName={openFile?.name ?? openSchemas[0].fileName}
+              schemas={openSchemas}
+              applyTargetsFor={(schema) => applyToAllTargets(batch.schemas, schema)}
+              onClose={() => setOpenFileId(null)}
+              onSave={(schemaId, fields, alsoApplyTo) =>
+                batch.saveSchema(schemaId, fields, alsoApplyTo)
               }
             />
           ) : null
@@ -175,14 +203,18 @@ function Prepare({
 
             {batch.files.length > 0 && (
               // The header already carries the status sentence; saying it twice
-              // on one screen makes neither copy worth reading.
+              // on one screen makes neither copy worth reading. This line acts
+              // on the batch instead, and keeps its weight on the right.
               <FileList
                 summary={
-                  <span>
-                    {formatCount(batch.files.length)}{" "}
-                    {batch.files.length === 1 ? "file" : "files"} dropped
-                    {rejectedCount > 0 ? ` · ${formatCount(rejectedCount)} rejected` : ""}
-                  </span>
+                  <FileActions
+                    fileCount={batch.files.length}
+                    totalBytes={totalBytes}
+                    failedCount={batch.retryableCount}
+                    onRetryAll={batch.retryAllUploads}
+                    onDiscardFailed={discardFailed}
+                    onAddFiles={batch.addFiles}
+                  />
                 }
               >
                 {batch.files.map((file) => (
@@ -191,29 +223,26 @@ function Prepare({
                     name={file.name}
                     location={file.location}
                     size={file.size}
-                    state={rowState(file, batch.schemas, batch.wontConvert)}
-                    progress={file.progress}
+                    state={rowState(file)}
                     failure={file.failure}
-                    onRetry={file.stage === "failed" ? () => batch.retryUpload(file.localId) : undefined}
+                    onRetry={
+                      file.stage === "failed" && file.file
+                        ? () => batch.retryUpload(file.localId)
+                        : undefined
+                    }
+                    detail={shapeDetail(file, batch.schemas)}
                     trailing={
-                      <PreviewEdit
+                      <FileEye
                         file={file}
-                        state={rowState(file, batch.schemas, batch.wontConvert)}
                         schemas={batch.schemas}
-                        onOpen={setOpenSchemaId}
+                        wontConvert={batch.wontConvert}
+                        stalled={batch.schemasStalled}
+                        onOpen={setOpenFileId}
                       />
                     }
                   />
                 ))}
               </FileList>
-            )}
-
-            {batch.uploading && batch.files.length > 0 && (
-              <LoadingState
-                label="Uploading your files"
-                value={batch.uploadedCount}
-                of={batch.acceptedCount}
-              />
             )}
 
             {showSchemas && batch.schemas.length > 0 && (
@@ -223,8 +252,8 @@ function Prepare({
                 </h2>
                 <SchemaGroupList
                   schemas={batch.schemas}
-                  openSchemaId={openSchemaId}
-                  onOpen={(schema: SchemaState) => setOpenSchemaId(schema.schemaId)}
+                  openFileId={openFileId}
+                  onOpen={(schema: SchemaState) => setOpenFileId(schema.fileId)}
                 />
               </section>
             )}
@@ -240,6 +269,8 @@ function Prepare({
         convertBlockedReason={batch.convertBlockedReason}
         converting={converting}
         failure={convertFailure}
+        progress={progress}
+        stalled={batch.schemasStalled}
         onReviewSchemas={() => setShowAllSchemas(true)}
         onConvert={convert}
       />
@@ -247,83 +278,82 @@ function Prepare({
   )
 }
 
-/** Ten states, one row: what this file is doing right now. */
-function rowState(
+/** The row says what the upload is doing. The eye says what the schema is doing. */
+const rowState = (file: BatchFile): FileRowState => UPLOAD_STAGE[file.stage]
+
+/** What this file's schema is doing, which is the only thing the eye can mean. */
+function eyeState(
   file: BatchFile,
   schemas: SchemaState[],
   wontConvert: { fileId: string }[],
-): FileRowState {
-  if (file.stage !== "uploaded") return UPLOAD_STAGE[file.stage]
-  if (file.fileId && schemas.some((s) => s.fileId === file.fileId)) return "shape-ready"
-  if (file.fileId && wontConvert.some((w) => w.fileId === file.fileId)) return "no-shape"
-  return "reading-shape"
+  stalled?: boolean,
+): SchemaEyeState {
+  if (file.fileId && schemas.some((s) => s.fileId === file.fileId)) return "ready"
+  if (file.stage !== "uploaded") return "uploading"
+  if (file.fileId && wontConvert.some((w) => w.fileId === file.fileId)) return "none"
+  return stalled ? "stalled" : "loading"
 }
 
-/** Why this file has no shape to open — the row's own state, not a guess. */
-const NO_SCHEMA_REASON: Partial<Record<FileRowState, string>> = {
-  rejected: "This file was rejected",
-  failed: "This file didn't finish uploading",
-  "no-shape": "No table was found in this file",
-  unreadable: "This file couldn't be read",
+/** What the row says under its name once its shape is known. */
+function shapeDetail(file: BatchFile, schemas: SchemaState[]): string | undefined {
+  const mine = schemas.filter((s) => s.fileId === file.fileId)
+  if (mine.length === 0) return undefined
+  // Field lists differ table by table, so a file with several is counted, not
+  // summed. Row counts are not known until the file is actually converted.
+  if (mine.length > 1) return `${formatCount(mine.length)} tables`
+  return `${formatCount(mine[0].current.length)} fields`
 }
 
-function PreviewEdit({
+/**
+ * One eye per row. A file that did not upload has Retry instead and no eye at
+ * all — a dead control beside a live one only crowds the live one out.
+ */
+function FileEye({
   file,
-  state,
   schemas,
+  wontConvert,
+  stalled,
   onOpen,
 }: {
   file: BatchFile
-  state: FileRowState
   schemas: SchemaState[]
-  onOpen: (schemaId: string) => void
+  wontConvert: { fileId: string }[]
+  /** The poll gave up; this file's schema is not on its way any more. */
+  stalled?: boolean
+  onOpen: (fileId: string) => void
 }) {
+  if (file.stage === "failed" || file.stage === "rejected") return null
+
   const mine = schemas.filter((s) => s.fileId === file.fileId)
 
-  // Present from the first frame and disabled until the shape lands: an empty
-  // space says nothing, a disabled button says something is coming.
-  if (mine.length === 0) {
-    return (
-      <GatedButton
-        variant="outline"
-        reason={NO_SCHEMA_REASON[state] ?? "Still reading this file"}
-        reasonClassName="hidden sm:inline"
-        className="h-8 rounded-lg bg-card text-[12.5px]"
-      >
-        Preview / Edit
-      </GatedButton>
-    )
-  }
-
-  // A file that held three tables offers three, each labelled by where it came from.
-  if (mine.length === 1) {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => onOpen(mine[0].schemaId)}
-        className="h-8 rounded-lg bg-card text-[12.5px]"
-      >
-        Preview / Edit
-      </Button>
-    )
-  }
-
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {mine.map((schema) => (
-        <Button
-          key={schema.schemaId}
-          variant="outline"
-          size="sm"
-          onClick={() => onOpen(schema.schemaId)}
-          className="h-8 rounded-lg bg-card text-[12px]"
-        >
-          {schema.tableLabel}
-        </Button>
-      ))}
-    </div>
+    <SchemaEyeButton
+      state={eyeState(file, schemas, wontConvert, stalled)}
+      tableCount={mine.length}
+      onOpen={() => file.fileId && onOpen(file.fileId)}
+    />
   )
+}
+
+/** What is left of the two minutes, for a batch this browser converted itself. */
+function remainingWait(convertedAt?: string): number {
+  if (!convertedAt) return 0
+  const since = Date.now() - Date.parse(convertedAt)
+  if (Number.isNaN(since)) return 0
+  return Math.max(0, RESULT_FIRST_POLL_MS - since)
+}
+
+/** The whole drop as one number, by bytes, so one big file cannot stall the bar. */
+function uploadFraction(files: BatchFile[]): number {
+  const accepted = files.filter((f) => f.stage !== "rejected")
+  const total = accepted.reduce((sum, f) => sum + f.size, 0)
+  if (total === 0) return 0
+  const done = accepted.reduce((sum, f) => {
+    if (f.stage === "uploaded") return sum + f.size
+    if (f.stage === "uploading") return sum + Math.min(f.size, f.progress?.loaded ?? 0)
+    return sum
+  }, 0)
+  return done / total
 }
 
 /* ------------------------------------------------------------------ */
@@ -333,13 +363,21 @@ function PreviewEdit({
 function Converting({
   requestId,
   userId,
+  convertedAt,
   onPhase,
 }: {
   requestId: string
   userId: string | null
+  /** Absent for a batch converted somewhere else — then there is nothing to wait out. */
+  convertedAt?: string
   onPhase: PhaseWriter
 }) {
+  // Read once, at mount: this is a deadline, not a countdown, and recomputing
+  // it every render would restart the poll on every render.
+  const [firstPollDelay] = useState(() => remainingWait(convertedAt))
+
   const poll = useResultPolling(requestId, userId, {
+    initialDelayMs: firstPollDelay,
     onData: (data) => {
       const toCheck = data.files.reduce((sum, f) => sum + (f.toCheckCount ?? 0), 0)
       onPhase(requestId, {
@@ -382,8 +420,26 @@ function Converting({
       </AppHeader>
 
       <main className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col gap-6 px-6 py-6">
-        {!poll.settled && <LoadingState label="Waking up" />}
+        {!poll.settled && <LoadingState label="Converting your files" />}
         {poll.failure && <ConnectionStatus failure={poll.failure} />}
+
+        {/* Out of polls with the batch still running. Saying nothing would
+            leave a screen that has quietly stopped telling the truth. */}
+        {poll.exhausted && !finished && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-border-subtle bg-card px-4 py-3">
+            <p className="text-[12.5px] text-muted-foreground">
+              This is taking longer than we keep watching for. Nothing is lost — check again
+              whenever you like.
+            </p>
+            <Button
+              variant="outline"
+              onClick={poll.refresh}
+              className="h-9 rounded-[10px] bg-card text-[13px]"
+            >
+              Check again
+            </Button>
+          </div>
+        )}
 
         {result && (
           <>

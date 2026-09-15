@@ -20,6 +20,7 @@ from .leases import ClaimOutcome
 from .models import EventType
 from .processors import convert as convert_processor
 from .processors import inspect as inspect_processor
+from .publisher import get_publisher
 from .storage import get_storage
 
 log = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ def _process(cfg: Config, file_row: dict) -> Result:
     storage = get_storage(cfg)
     processor = inspect_processor if cfg.role is ServiceRole.INSPECT else convert_processor
 
+    chained = False
     try:
         with db.transaction() as conn:
             next_stage = processor.run(conn, cfg, file_row, storage)
@@ -119,8 +121,12 @@ def _process(cfg: Config, file_row: dict) -> Result:
                 event_type=EventType.FILE_COMPLETED,
                 metadata={"stage": next_stage, "role": cfg.role.value},
             )
+            if cfg.role is ServiceRole.INSPECT and next_stage == "SCHEMA_READY":
+                chained = _convert_if_already_requested(conn, cfg, file_row)
             _refresh_request_status(conn, file_row["request_id"])
         log.info("processed", extra={"fileId": file_id, "role": cfg.role.value})
+        if chained:
+            _relay_now(cfg)
         return Result(ClaimOutcome.CLAIMED, file_id)
 
     except Exception as exc:  # noqa: BLE001 - every failure gets a class
@@ -136,6 +142,74 @@ def _process(cfg: Config, file_row: dict) -> Result:
         # the reaper from the database, not by making Pub/Sub redeliver — one
         # retry mechanism, not two disagreeing ones.
         return Result(ClaimOutcome.CLAIMED, file_id, detail)
+
+
+#: Convert was pressed before this file's shape was in. The request already
+#: says so, so the file goes straight on rather than waiting for a second press
+#: that is never coming.
+_CHAIN_CONVERT_SQL = text(
+    """
+    UPDATE files f
+       SET stage = 'CONVERTING', updated_at = now()
+      FROM requests r
+     WHERE f.id = :file_id
+       AND r.id = f.request_id
+       AND r.converted_at IS NOT NULL
+       AND f.stage = 'SCHEMA_READY'
+    RETURNING f.id
+    """
+)
+
+
+def _convert_if_already_requested(conn, cfg: Config, file_row: dict) -> bool:
+    """Carry a just-inspected file into conversion if Convert already happened.
+
+    Nobody has to press it twice, and nothing has to poll for the shape: the
+    row that says the request was converted is the one this reads, in the same
+    transaction that settled the shape.
+
+    Returns whether it queued anything, so the caller can publish immediately
+    instead of leaving it for the next sweep.
+    """
+    from . import outbox
+
+    moved = conn.execute(_CHAIN_CONVERT_SQL, {"file_id": file_row["id"]}).first()
+    if moved is None:
+        return False
+
+    outbox.enqueue(
+        conn,
+        request_id=file_row["request_id"],
+        file_id=file_row["id"],
+        topic=cfg.topic_convert_requested,
+        payload={"fileId": file_row["id"]},
+    )
+    events.record(
+        conn,
+        request_id=file_row["request_id"],
+        user_id=file_row["user_id"],
+        file_id=file_row["id"],
+        event_type=EventType.CONVERT_REQUESTED,
+        message="Convert was pressed before this shape landed.",
+        metadata={"chained": True},
+    )
+    log.info("chained straight to convert", extra={"fileId": file_row["id"]})
+    return True
+
+
+def _relay_now(cfg: Config) -> None:
+    """Publish what was just queued, rather than waiting on the sweep.
+
+    The row is committed either way — this is the fast path, exactly as it is
+    on the web side, and a failure here is a delay of one sweep, not a loss.
+    """
+    from . import outbox
+
+    try:
+        with db.transaction() as conn:
+            outbox.relay(conn, cfg, get_publisher(cfg))
+    except Exception:  # noqa: BLE001 - the sweep is the backstop
+        log.warning("immediate relay failed; the sweep will pick it up")
 
 
 def _record_failure(cfg: Config, file_row: dict, failure_class, detail: str) -> None:

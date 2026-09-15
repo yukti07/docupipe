@@ -6,19 +6,21 @@ import { FileRow, type FileRowState } from "./FileRow"
 
 describe("FileRow", () => {
   it.each([
-    ["staged", "Staged"],
-    ["checking", "Checking"],
+    ["staged", "In line"],
+    ["checking", "In line"],
     ["rejected", "Rejected"],
     ["uploading", "Uploading"],
     ["failed", "Upload failed"],
     ["uploaded", "Uploaded"],
-    ["reading-shape", "Reading shape"],
-    ["shape-ready", "Shape ready"],
-    ["no-shape", "No table found"],
-    ["unreadable", "Couldn't read it"],
   ] as [FileRowState, string][])("names the %s state on screen", (state, label) => {
     render(<FileRow name="invoice-1044.pdf" state={state} />)
     expect(screen.getByText(label)).toBeVisible()
+  })
+
+  it("says nothing about a schema — that belongs to the eye beside it", () => {
+    render(<FileRow name="invoice-1044.pdf" state="uploaded" />)
+    expect(screen.queryByText(/shape/i)).not.toBeInTheDocument()
+    expect(screen.queryByText("Checking")).not.toBeInTheDocument()
   })
 
   it("carries the S04 states too, because it is one component on both screens", () => {
@@ -26,29 +28,10 @@ describe("FileRow", () => {
     expect(screen.getByText("Paused")).toBeVisible()
   })
 
-  it("shows a per-file bar while that file is uploading", () => {
-    render(
-      <FileRow
-        name="invoice-1044.pdf"
-        state="uploading"
-        progress={{ loaded: 512, total: 1024 }}
-      />,
-    )
-    expect(screen.getByRole("progressbar", { name: /invoice-1044/ })).toHaveAttribute(
-      "aria-valuenow",
-      "50",
-    )
-  })
-
-  it("drops the bar the moment the file has landed", () => {
-    render(
-      <FileRow
-        name="invoice-1044.pdf"
-        state="shape-ready"
-        progress={{ loaded: 512, total: 1024 }}
-      />,
-    )
+  it("leaves progress to the spinner and the batch bar, not a bar per row", () => {
+    render(<FileRow name="invoice-1044.pdf" state="uploading" />)
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    expect(screen.getByText("Uploading")).toBeVisible()
   })
 
   it("owns its own retry", async () => {
@@ -85,7 +68,7 @@ describe("FileRow", () => {
     render(
       <FileRow
         name="invoice-1043.pdf"
-        state="reading-shape"
+        state="uploaded"
         trailing={
           <GatedButton reason="Still reading this file's shape">Preview / Edit</GatedButton>
         }

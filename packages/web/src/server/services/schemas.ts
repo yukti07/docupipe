@@ -107,25 +107,30 @@ export async function pollSchemas(
     }
   }
 
-  const convertAvailable = pending === 0 && files.length > 0 && request.converted_at === null
+  // The gate is arrival, not inspection. A file whose shape is still being read
+  // does not hold Convert shut: pressing it queues what is ready and the worker
+  // carries the rest on as their shapes land.
+  const arriving = files.filter((file) => file.stage === "UPLOADING").length
+  const convertAvailable =
+    arriving === 0 && files.length > 0 && request.converted_at === null
 
   return {
     userId,
     requestId,
     pending,
     convertAvailable,
-    convertBlockedReason: blockedReason(pending, files.length, request.converted_at !== null),
+    convertBlockedReason: blockedReason(arriving, files.length, request.converted_at !== null),
     files: entries,
   }
 }
 
-function blockedReason(pending: number, total: number, converted: boolean): string | null {
+function blockedReason(arriving: number, total: number, converted: boolean): string | null {
   if (converted) return "This batch has already been converted."
   if (total === 0) return "No files have been uploaded yet."
-  if (pending > 0) {
-    return pending === 1
-      ? "1 file is still reading its shape."
-      : `${pending} files are still reading their shape.`
+  if (arriving > 0) {
+    return arriving === 1
+      ? "1 file is still uploading."
+      : `${arriving} files are still uploading.`
   }
   return null
 }

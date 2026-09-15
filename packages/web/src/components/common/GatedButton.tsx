@@ -11,6 +11,11 @@ type GatedButtonProps = Omit<ComponentProps<typeof Button>, "disabled"> & {
   reason?: string | null
   children: ReactNode
   reasonClassName?: string
+  /**
+   * The reason is already written somewhere on screen — print it beside the
+   * button and it is said twice. It stays in the accessible name either way.
+   */
+  hideReason?: boolean
 }
 
 export function GatedButton({
@@ -18,6 +23,7 @@ export function GatedButton({
   children,
   className,
   reasonClassName,
+  hideReason,
   ...props
 }: GatedButtonProps) {
   const gated = Boolean(reason)
@@ -34,7 +40,7 @@ export function GatedButton({
     </Button>
   )
 
-  if (!gated) return button
+  if (!gated || hideReason) return button
 
   return (
     <div className="flex items-center gap-3">

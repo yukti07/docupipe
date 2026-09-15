@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, Copy, Link2 } from "lucide-react"
+import { Check, Copy, Layers, Link2 } from "lucide-react"
 import Link from "next/link"
 import { useState, useSyncExternalStore, type ReactNode } from "react"
 import { AllowanceMeter } from "@/components/quarry/AllowanceMeter"
@@ -47,10 +47,11 @@ export function AppHeader({
         href="/"
         className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
-        <span className="grid size-6 place-items-center rounded-[7px] bg-primary text-[12px] font-semibold text-primary-foreground">
-          Q
+        {/* Stacked layers: a pile of documents read into one table. */}
+        <span className="grid size-7 place-items-center rounded-[9px] bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(16,40,34,0.18)]">
+          <Layers aria-hidden className="size-4" strokeWidth={2.1} />
         </span>
-        <span className="text-[14px] font-semibold tracking-[-0.01em]">Quarry</span>
+        <span className="text-[15px] font-semibold tracking-[-0.015em]">Quarry</span>
       </Link>
 
       <div className="min-w-0 flex-1">{children}</div>

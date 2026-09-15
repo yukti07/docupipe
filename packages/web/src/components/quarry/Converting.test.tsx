@@ -4,7 +4,7 @@ import type { ResultEntry, ResultPollResponse } from "@/lib/api/types"
 import { ConvertBar } from "./ConvertBar"
 import { PausedBanner } from "./PausedBanner"
 import { PipelineStrip } from "./PipelineStrip"
-import { StatusSentence, shapesSentence, statusSentence } from "./StatusSentence"
+import { StatusSentence, statusSentence } from "./StatusSentence"
 import { TableList } from "./TableList"
 
 const entry = (over: Partial<ResultEntry> = {}): ResultEntry => ({
@@ -66,15 +66,6 @@ describe("StatusSentence", () => {
   it("announces itself politely rather than stealing focus", () => {
     render(<StatusSentence result={result()} />)
     expect(screen.getByText(/done/)).toHaveAttribute("aria-live", "polite")
-  })
-
-  it("counts shapes instead of tables on the prepare screen", () => {
-    expect(shapesSentence({ uploaded: 6, total: 6, schemas: 5, failed: 0 })).toBe(
-      "6 of 6 uploaded · 5 schemas back",
-    )
-    expect(shapesSentence({ uploaded: 41, total: 41, schemas: 39, failed: 2 })).toBe(
-      "41 of 41 uploaded · 39 schemas back · 2 without a shape",
-    )
   })
 })
 
@@ -195,6 +186,56 @@ describe("TableList", () => {
 })
 
 describe("ConvertBar", () => {
+  it("carries the batch's two clocks and a bar of its own", () => {
+    render(
+      <ConvertBar
+        readySchemaCount={1}
+        convertAvailable={false}
+        convertBlockedReason="2 files are still reading their shape."
+        progress={{
+          uploaded: 3,
+          total: 3,
+          schemas: 1,
+          withoutShape: 0,
+          uploading: false,
+          inFlight: 0,
+          fraction: 1,
+        }}
+        onReviewSchemas={vi.fn()}
+        onConvert={vi.fn()}
+      />,
+    )
+    expect(screen.getByText("3 of 3 uploaded")).toBeVisible()
+    expect(screen.getByText("1 of 3 schemas back")).toBeVisible()
+    expect(screen.getByRole("progressbar", { name: "Uploading this batch" })).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    )
+  })
+
+  it("keeps what has landed apart from what is still going up", () => {
+    render(
+      <ConvertBar
+        readySchemaCount={0}
+        convertAvailable={false}
+        convertBlockedReason={null}
+        progress={{
+          uploaded: 1,
+          total: 3,
+          schemas: 0,
+          withoutShape: 0,
+          uploading: true,
+          inFlight: 1,
+          fraction: 0.4,
+        }}
+        onReviewSchemas={vi.fn()}
+        onConvert={vi.fn()}
+      />,
+    )
+    expect(screen.getByText("1 of 3 uploaded · 1 going up")).toBeVisible()
+    expect(screen.getByText("0 of 3 schemas back")).toBeVisible()
+  })
+
   it("gates Convert on the server's answer and repeats its reason", () => {
     render(
       <ConvertBar
@@ -205,7 +246,9 @@ describe("ConvertBar", () => {
         onConvert={vi.fn()}
       />,
     )
-    expect(screen.getByText("7 files are still reading their shape.")).toBeVisible()
+    // The footer prints counts, not prose: the server's reason rides on the
+    // disabled button, where it is read out with the control it explains.
+    expect(screen.queryByText("7 files are still reading their shape.")).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /Convert.*7 files are still reading their shape/ }),
     ).toBeDisabled()
@@ -221,7 +264,7 @@ describe("ConvertBar", () => {
         onConvert={vi.fn()}
       />,
     )
-    expect(screen.getByText("No schemas ready yet")).toBeVisible()
+    expect(screen.getByRole("button", { name: /Review schemas/ })).toBeDisabled()
 
     rerender(
       <ConvertBar
@@ -261,7 +304,7 @@ describe("ConvertBar", () => {
         onConvert={vi.fn()}
       />,
     )
-    expect(within(container).getAllByText("7 files are still reading their shape.")).toHaveLength(2)
+    expect(within(container).getAllByText("7 files are still reading their shape.")).toHaveLength(1)
     expect(screen.getByText("Wait for them to finish, or remove them.")).toBeVisible()
   })
 })

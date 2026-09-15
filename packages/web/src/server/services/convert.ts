@@ -12,7 +12,13 @@ import { publishAll } from "../publish"
  */
 
 /**
- * The one gate in the product.
+ * The one gate in the product: every file has to have *arrived*.
+ *
+ * It is not a gate on schemas. Someone who does not want to review a shape
+ * should not be made to wait for one, so Convert is accepted while files are
+ * still being inspected: the ones whose shape is in start now, and each of the
+ * rest is carried straight into conversion by the inspect worker the moment
+ * its shape lands (see `_convert_if_already_requested` in the worker pipeline).
  *
  * The server re-checks the condition itself rather than trusting a greyed-out
  * button: a caller bypassing the UI gets the same answer.
@@ -39,17 +45,15 @@ export async function convert(
       }
     }
 
-    const pending = files.filter(
-      (f) => f.stage !== "SCHEMA_READY" && f.stage !== "FAILED",
-    ).length
+    const arriving = files.filter((f) => f.stage === "UPLOADING").length
 
-    if (pending > 0) {
+    if (arriving > 0) {
       throw fail(
         "gate_not_met",
-        pending === 1
-          ? "1 file is still reading its shape."
-          : `${pending} files are still reading their shape.`,
-        { pending },
+        arriving === 1
+          ? "1 file is still uploading."
+          : `${arriving} files are still uploading.`,
+        { pending: arriving },
       )
     }
 
@@ -73,11 +77,17 @@ export async function convert(
       outbox.push({ id, fileId })
     }
 
+    // Still being inspected when Convert was pressed. They are not skipped and
+    // not blockers — the inspect worker hands each one on as its shape lands.
+    const awaitingShape = files.filter(
+      (f) => f.stage === "UPLOADED" || f.stage === "INSPECTING",
+    ).length
+
     await repo.recordEvent(tx, {
       requestId,
       userId,
       type: "CONVERT_REQUESTED",
-      metadata: { queued: moved.length, skipped: files.length - moved.length },
+      metadata: { queued: moved.length, awaitingShape, skipped: failedCount(files) },
       traceId,
     })
 
@@ -85,7 +95,7 @@ export async function convert(
       queued: moved.length,
       // Files already failed are carried through as failures, never blockers —
       // one unreadable file must not hold thirty-eight good ones hostage.
-      skipped: files.length - moved.length,
+      skipped: failedCount(files),
       outbox,
     }
   })
@@ -106,6 +116,9 @@ export async function convert(
 
   return { status: "received", queued: outcome.queued, skipped: outcome.skipped }
 }
+
+const failedCount = (files: { stage: string }[]) =>
+  files.filter((f) => f.stage === "FAILED").length
 
 /**
  * A snapshot, not a delta — every table is returned on every poll.

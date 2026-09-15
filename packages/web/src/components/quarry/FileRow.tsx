@@ -1,6 +1,6 @@
 "use client"
 
-import { RotateCw } from "lucide-react"
+import { AlignLeft, RotateCw } from "lucide-react"
 import type { ReactNode } from "react"
 import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
@@ -15,17 +15,14 @@ import { cn } from "@/lib/utils"
  * screens drift apart.
  */
 export type FileRowState =
-  // S02
+  // S02 — the upload, and nothing else. What a file's schema is doing shows on
+  // the eye beside it, so the row never carries two clocks at once.
   | "staged"
   | "checking"
   | "rejected"
   | "uploading"
   | "failed"
   | "uploaded"
-  | "reading-shape"
-  | "shape-ready"
-  | "no-shape"
-  | "unreadable"
   // S04
   | "waiting"
   | "running"
@@ -33,21 +30,21 @@ export type FileRowState =
   | "convert-failed"
   | "paused"
 
-const STATES: Record<FileRowState, { label: string; variant: StatusVariant }> = {
-  staged: { label: "Staged", variant: "neutral" },
-  checking: { label: "Checking", variant: "working" },
+const STATES: Record<
+  FileRowState,
+  { label: string; variant: StatusVariant; icon?: typeof AlignLeft }
+> = {
+  // Three words cover the upload: in line, going up, landed. A file being
+  // signed has not started moving, so it is still in line.
+  staged: { label: "In line", variant: "neutral", icon: AlignLeft },
+  checking: { label: "In line", variant: "neutral", icon: AlignLeft },
   rejected: { label: "Rejected", variant: "error" },
   uploading: { label: "Uploading", variant: "working" },
   failed: { label: "Upload failed", variant: "error" },
-  uploaded: { label: "Uploaded", variant: "neutral" },
-  "reading-shape": { label: "Reading shape", variant: "working" },
-  // C3 — a finished chip is neutral; the accent is not a status.
-  "shape-ready": { label: "Shape ready", variant: "neutral" },
-  "no-shape": { label: "No table found", variant: "error" },
-  unreadable: { label: "Couldn't read it", variant: "error" },
-  waiting: { label: "Waiting", variant: "neutral" },
+  uploaded: { label: "Uploaded", variant: "success" },
+  waiting: { label: "Waiting", variant: "neutral", icon: AlignLeft },
   running: { label: "Running", variant: "working" },
-  done: { label: "Done", variant: "neutral" },
+  done: { label: "Done", variant: "success" },
   // Distinct from `failed`, which is an upload that did not land.
   "convert-failed": { label: "Couldn't convert it", variant: "error" },
   paused: { label: "Paused", variant: "paused" },
@@ -61,7 +58,6 @@ export type FileRowProps = {
   state: FileRowState
   /** Sub-label under the name — "page 2 of 3", "14 rows · 6 fields". */
   detail?: string
-  progress?: { loaded: number; total: number }
   failure?: Failure
   onRetry?: () => void
   /** Preview / Edit on S02; View and Download on S04. */
@@ -75,27 +71,19 @@ export function FileRow({
   size,
   state,
   detail,
-  progress,
   failure,
   onRetry,
   trailing,
   className,
 }: FileRowProps) {
-  const { label, variant } = STATES[state]
+  const { label, variant, icon } = STATES[state]
   const folder = location && location.includes("/") ? location.slice(0, location.lastIndexOf("/")) : null
-  // Only while it is actually uploading. A half-drawn bar beside a row that has
-  // already landed says the opposite of what is true.
-  const fraction =
-    state === "uploading" && progress && progress.total > 0
-      ? Math.min(1, progress.loaded / progress.total)
-      : null
 
   return (
     <div
       data-state={state}
       className={cn(
-        "flex min-h-[56px] flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-faint px-4 py-2.5 last:border-b-0",
-        state === "rejected" || state === "failed" ? "bg-error-bg/40" : "bg-card",
+        "flex min-h-[56px] flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-faint bg-card px-4 py-2.5 last:border-b-0",
         className,
       )}
     >
@@ -108,20 +96,9 @@ export function FileRow({
         </p>
       </div>
 
-      {fraction !== null && (
-        <div
-          role="progressbar"
-          aria-label={`Uploading ${name}`}
-          aria-valuenow={Math.round(fraction * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="h-[5px] w-28 shrink-0 overflow-hidden rounded-full bg-border-subtle"
-        >
-          <div className="h-full bg-primary transition-[width]" style={{ width: `${fraction * 100}%` }} />
-        </div>
-      )}
-
-      <StatusBadge variant={variant} className="shrink-0">
+      {/* A state is a word next to a mark, not a chip. Pills stacked down a
+          list read as decoration; these read as a column you can scan. */}
+      <StatusBadge variant={variant} appearance="bare" icon={icon} className="shrink-0">
         {label}
       </StatusBadge>
 

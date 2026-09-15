@@ -12,12 +12,13 @@ import { cn } from "@/lib/utils"
  */
 export function SchemaGroupList({
   schemas,
-  openSchemaId,
+  openFileId,
   onOpen,
   className,
 }: {
   schemas: SchemaState[]
-  openSchemaId?: string | null
+  /** The panel belongs to a file, so every card from that file reads as open. */
+  openFileId?: string | null
   onOpen: (schema: SchemaState) => void
   className?: string
 }) {
@@ -40,7 +41,7 @@ export function SchemaGroupList({
                 <SchemaCard
                   schema={schema}
                   sharedWith={group.schemas.length - 1}
-                  selected={openSchemaId === schema.schemaId}
+                  selected={openFileId === schema.fileId}
                   onOpen={() => onOpen(schema)}
                 />
               </li>

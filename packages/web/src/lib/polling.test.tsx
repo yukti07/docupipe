@@ -7,17 +7,27 @@ function Probe({
   poll,
   stopWhen,
   intervalFor,
+  maxPolls,
+  initialDelayMs,
 }: {
   poll: (signal: AbortSignal) => Promise<string>
   stopWhen?: (data: string) => boolean
   intervalFor?: (data: string | null, elapsed: number) => number
+  maxPolls?: number
+  initialDelayMs?: number
 }) {
-  const { data, failure, settled } = usePoll(poll, { stopWhen, intervalFor })
+  const { data, failure, settled, exhausted } = usePoll(poll, {
+    stopWhen,
+    intervalFor,
+    maxPolls,
+    initialDelayMs,
+  })
   return (
     <div>
       <span data-testid="data">{data ?? "-"}</span>
       <span data-testid="failure">{failure?.class ?? "-"}</span>
       <span data-testid="settled">{String(settled)}</span>
+      <span data-testid="exhausted">{String(exhausted)}</span>
     </div>
   )
 }
@@ -71,6 +81,37 @@ describe("usePoll", () => {
     await flush()
     await tick(POLL_FAST_MS * 5)
     expect(poll).toHaveBeenCalledOnce()
+  })
+
+  it("holds the first poll for as long as it was told to", async () => {
+    vi.useFakeTimers()
+    const poll = vi.fn().mockResolvedValue("first")
+    render(<Probe poll={poll} initialDelayMs={120_000} />)
+    await flush()
+
+    // Nothing at all for two minutes — not even the first one.
+    await tick(119_000)
+    expect(poll).not.toHaveBeenCalled()
+    expect(screen.getByTestId("settled")).toHaveTextContent("false")
+
+    await tick(1_000)
+    expect(poll).toHaveBeenCalledOnce()
+  })
+
+  it("gives up on a budget of polls, and says it gave up", async () => {
+    vi.useFakeTimers()
+    const poll = vi.fn().mockResolvedValue("still waiting")
+    render(<Probe poll={poll} maxPolls={3} />)
+    await flush()
+
+    await tick(POLL_FAST_MS)
+    await tick(POLL_FAST_MS)
+    expect(poll).toHaveBeenCalledTimes(3)
+
+    // Budget spent: no fourth poll, and the screen can tell it was given up on.
+    await tick(POLL_FAST_MS * 5)
+    expect(poll).toHaveBeenCalledTimes(3)
+    expect(screen.getByTestId("exhausted")).toHaveTextContent("true")
   })
 
   it("keeps the last good state when a poll fails, and retries", async () => {

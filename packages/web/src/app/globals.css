@@ -22,6 +22,10 @@
   --primary-tint: oklch(0.96 0.018 172);
   --primary-tint-strong: oklch(0.90 0.015 172);
   --primary-tint-border: oklch(0.88 0.02 172);
+  /* the water in the eye button, and the ink that reads on top of it */
+  --water: oklch(0.87 0.052 172);
+  --water-deep: oklch(0.79 0.085 173);
+  --water-ink: oklch(0.33 0.09 172);
 
   /* neutrals */
   --secondary: oklch(0.968 0.003 260);
@@ -116,6 +120,9 @@
   --color-primary-tint: var(--primary-tint);
   --color-primary-tint-strong: var(--primary-tint-strong);
   --color-primary-tint-border: var(--primary-tint-border);
+  --color-water: var(--water);
+  --color-water-deep: var(--water-deep);
+  --color-water-ink: var(--water-ink);
   --color-success: var(--success);
   --color-review: var(--review);
   --color-review-strong: var(--review-strong);
@@ -166,6 +173,38 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* The eye button holds water while that file's schema is being read. Two wave
+   layers drift opposite ways over a slow bob, so it looks alive without
+   claiming progress it does not have: at three seconds or three minutes the
+   level is the same. Only the schema arriving raises it. */
+@keyframes water-drift-a {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes water-drift-b {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes water-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(2px);
   }
 }
 

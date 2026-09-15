@@ -14,7 +14,7 @@ export function FileList({
   return (
     <section className={cn("flex flex-col", className)}>
       {summary && (
-        <div className="flex items-center justify-between gap-3 px-1 pb-2 text-[12.5px] tabular-nums text-subtle-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-0.5 pb-2.5 text-[12.5px] tabular-nums text-subtle-foreground">
           {summary}
         </div>
       )}

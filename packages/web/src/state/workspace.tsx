@@ -17,6 +17,8 @@ export type WorkspaceBatch = {
   createdAt: string
   fileCount: number
   phase: WorkspacePhase
+  /** When Convert was pressed *in this browser*. The result poll waits it out. */
+  convertedAt?: string
   /** Last poll's headline numbers, so a card reads true before its first poll returns. */
   summary: {
     tables?: number

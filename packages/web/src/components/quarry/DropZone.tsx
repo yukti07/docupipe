@@ -46,19 +46,43 @@ export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) 
       onDragLeave={() => setDrag("idle")}
       onDrop={onDrop}
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center transition-colors duration-120",
-        drag === "idle" && "border-border bg-card",
-        drag === "dragging" && "border-primary bg-primary-tint",
-        drag === "dragging-invalid" && "border-error bg-error-bg",
+        "flex flex-col items-center justify-center gap-3 rounded-xl border px-6 py-12 text-center transition-colors duration-120",
+        // Idle is a quiet card washed with the accent from both corners — the
+        // one place a gradient is spent, because this area *is* the page.
+        // A slanted ramp: the accent at full tint in the top-left corner,
+        // washing out to the plain card by the bottom-right.
+        drag === "idle" &&
+          "border-primary-tint-border bg-[linear-gradient(120deg,var(--primary-tint-strong)_0%,var(--primary-tint)_45%,var(--card)_100%)]",
+        drag === "dragging" && "border-dashed border-primary bg-primary-tint-strong",
+        drag === "dragging-invalid" && "border-dashed border-error bg-error-bg",
         disabled && "border-border-subtle bg-muted",
         className,
       )}
     >
-      <Upload
-        aria-hidden
-        className={cn("size-6", drag === "dragging-invalid" ? "text-error" : "text-muted-foreground")}
-        strokeWidth={1.6}
-      />
+      {/* The mark sits in its own tile so the arrow reads as an object to aim at. */}
+      <span
+        className={cn(
+          "grid size-14 place-items-center rounded-2xl border transition-colors duration-120",
+          drag === "dragging-invalid"
+            ? "border-error-border bg-card"
+            : disabled
+              ? "border-border-subtle bg-card/70"
+              : "border-primary-tint-border bg-card shadow-[0_1px_2px_rgba(16,40,34,0.05)]",
+        )}
+      >
+        <Upload
+          aria-hidden
+          className={cn(
+            "size-6",
+            drag === "dragging-invalid"
+              ? "text-error"
+              : disabled
+                ? "text-muted-foreground"
+                : "text-primary",
+          )}
+          strokeWidth={1.7}
+        />
+      </span>
 
       {drag === "dragging-invalid" ? (
         <p className="text-[14px] font-medium text-error-strong">
@@ -71,20 +95,22 @@ export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) 
       )}
 
       {/* The limits are written inside the zone, before anyone has tried anything. */}
-      <p className="text-[12.5px] text-muted-foreground">
-        {ACCEPTED_SUMMARY} · {SIZE_CAP_SUMMARY}
+      <p className="text-[12.5px] leading-[1.6] text-subtle-foreground">
+        {ACCEPTED_SUMMARY} <span className="text-muted-foreground">·</span>{" "}
+        {/* The cap is one phrase — it never breaks across "50 MB / a file". */}
+        <span className="whitespace-nowrap">{SIZE_CAP_SUMMARY}</span>
       </p>
 
       <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+        {/* One primary per screen, and on the workspace this is it. */}
         <Button
           type="button"
-          variant="outline"
           disabled={disabled}
           // The reason is on screen below; it is repeated here so it reaches a
           // screen reader landing on the control itself.
           aria-label={disabled ? `Choose files — ${disabledReason}` : undefined}
           onClick={() => fileInput.current?.click()}
-          className="h-9 gap-1.5 rounded-[10px] bg-card text-[13px]"
+          className="h-9 gap-1.5 rounded-[10px] text-[13px] shadow-xs hover:bg-primary-hover"
         >
           <Upload aria-hidden className="size-3.5" />
           Choose files

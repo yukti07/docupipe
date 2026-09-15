@@ -35,6 +35,30 @@ export STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/quarry
 .venv/bin/uvicorn src.main:app --port 8080
 ```
 
+### Against real GCS and real Pub/Sub
+
+Pub/Sub cannot push to a laptop, so a worker outside Cloud Run has to pull.
+`PUBSUB_DELIVERY=pull` opens a streaming pull on the subscriptions below and
+feeds them through the same parser and pipeline the push route uses; deployed
+instances leave it unset and stay on push.
+
+```bash
+export SERVICE_ROLE=both
+export STORAGE_BACKEND=gcs GCS_BUCKET_NAME=zamptestbucket
+export GCP_PROJECT_ID=project-cf6fd144-baf2-463b-9cd
+export PUBSUB_DELIVERY=pull
+export PUBSUB_SUBSCRIPTION_FILE_UPLOADED=file-uploaded-local
+export PUBSUB_SUBSCRIPTION_CONVERT_REQUESTED=convert-requested-local
+
+.venv/bin/uvicorn src.main:app --port 8080
+```
+
+Credentials come from ADC, and signing a URL needs a credential with a
+`client_email` — so ADC must impersonate a service account, not be a bare user
+login. The subscription ack deadline must be at least `LEASE_SECONDS` or a
+healthy worker gets its file stolen mid-run; both subscriptions are created at
+600s, which is the Pub/Sub maximum and the `LEASE_SECONDS` default.
+
 ## Tests
 
 ```bash

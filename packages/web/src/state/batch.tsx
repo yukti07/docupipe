@@ -11,7 +11,7 @@ import type {
   SchemaField,
 } from "@/lib/api/types"
 import { usePoll } from "@/lib/polling"
-import type { StagedFile } from "@/lib/preflight"
+import { stageFiles, type StagedFile } from "@/lib/preflight"
 import { uploadAll, type UploadTask } from "@/lib/upload"
 import type { SchemaState } from "@/lib/schema"
 import { readRememberedFiles, rememberFiles, type RememberedFile } from "@/state/batchFiles"
@@ -66,6 +66,9 @@ type Action =
   | { type: "upload-settled"; localId: string; failure?: Failure }
   | { type: "upload-confirmed"; entries: { fileId: string; failure?: Failure }[] }
   | { type: "retrying"; localId: string }
+  | { type: "restaged"; localIds: string[] }
+  | { type: "added"; files: BatchFile[] }
+  | { type: "discarded"; localIds: string[] }
   | { type: "schema-poll"; response: SchemaPollResponse }
   | { type: "schema-saved"; schemaIds: string[]; fields: SchemaField[]; versions: Record<string, number> }
 
@@ -75,7 +78,9 @@ const EMPTY: BatchState = {
   wontConvert: [],
   pending: 0,
   convertAvailable: false,
-  convertBlockedReason: "Nothing has been uploaded yet.",
+  // The server owns this sentence. Until it answers there is nothing honest to
+  // say, and the gate says it by staying shut rather than by explaining itself.
+  convertBlockedReason: null,
   failure: null,
 }
 
@@ -111,10 +116,13 @@ function reduce(state: BatchState, action: Action): BatchState {
       }
 
     case "signing-failed":
+      // A file that could not even be signed has not uploaded, so it says so and
+      // offers a retry. The reason belongs to the batch, not to each row, so it
+      // is stated once above the list rather than four times inside it.
       return {
         ...state,
         failure: action.failure,
-        files: state.files.map((f) => (f.stage === "checking" ? { ...f, stage: "staged" } : f)),
+        files: state.files.map((f) => (f.stage === "checking" ? { ...f, stage: "failed" } : f)),
       }
 
     case "signed":
@@ -180,6 +188,29 @@ function reduce(state: BatchState, action: Action): BatchState {
             : f,
         ),
       }
+
+    case "restaged": {
+      const ids = new Set(action.localIds)
+      return {
+        ...state,
+        failure: null,
+        files: state.files.map((f) =>
+          ids.has(f.localId)
+            ? { ...f, stage: "staged", failure: undefined, progress: undefined }
+            : f,
+        ),
+      }
+    }
+
+    case "added":
+      return { ...state, files: [...state.files, ...action.files] }
+
+    case "discarded": {
+      const ids = new Set(action.localIds)
+      const files = state.files.filter((f) => !ids.has(f.localId))
+      // The banner named files that are no longer on screen.
+      return { ...state, files, failure: files.length === 0 ? null : state.failure }
+    }
 
     case "schema-poll": {
       const { response } = action
@@ -251,13 +282,25 @@ const toBatchFile = (staged: StagedFile): BatchFile => ({
 /* The hook                                                            */
 /* ------------------------------------------------------------------ */
 
+/** §0.4, pinned for now: one poll every 5 s, and no more than 60 of them. */
+export const SCHEMA_POLL_MS = 5000
+export const SCHEMA_POLL_MAX = 60
+
 export type UseBatch = BatchState & {
   /** True while the upload half of Prepare still has work in flight. */
   uploading: boolean
   uploadedCount: number
   acceptedCount: number
   schemaPollFailure: Failure | null
+  /** The poll ran out its budget with shapes still missing. */
+  schemasStalled: boolean
+  /** Uploads that did not land and still hold their bytes, so they can go again. */
+  retryableCount: number
   retryUpload: (localId: string) => void
+  retryAllUploads: () => void
+  /** Drops every row that will not upload, and answers with how many are left. */
+  discardFailed: () => number
+  addFiles: (files: File[]) => void
   saveSchema: (
     schemaId: string,
     fields: SchemaField[],
@@ -274,6 +317,10 @@ export function useBatch(
   const { pollSchemas = true } = options
   const [state, dispatch] = useReducer(reduce, EMPTY)
   const [uploading, setUploading] = useState(false)
+  // Nothing is polled until the staged drop has been read out of the handoff:
+  // the first render has no files yet, and polling then asks the server about a
+  // request it has not been told about, which is a 500 by any other name.
+  const [hydrated, setHydrated] = useState(false)
   const started = useRef(false)
 
   // The drop happened on the workspace screen; the bytes are handed over here.
@@ -282,6 +329,7 @@ export function useBatch(
     started.current = true
 
     const staged = takeStagedFiles(requestId)
+    setHydrated(true)
 
     if (!staged || staged.length === 0) {
       // A reload, or this batch was started somewhere else. Whatever already
@@ -317,30 +365,137 @@ export function useBatch(
     (f) => f.stage === "uploaded" || f.fileId !== undefined,
   ).length
   const acceptedCount = state.files.filter((f) => f.stage !== "rejected").length
-  const anyUploaded = state.files.some((f) => f.stage === "uploaded")
+  // A fileId only exists once getSignedUrl has answered, which is the moment
+  // the server has a row for this request and these files. Before that there is
+  // nothing on the other end to poll for.
+  const anyRegistered = state.files.some((f) => f.fileId !== undefined)
 
   // Upload and shape-reading are two clocks: a row can be uploaded while its
   // shape is still coming, so the poll starts as soon as anything has landed.
+  // Every file that has landed, and every one that has settled a shape either
+  // way. The poll stops when those two agree and nothing is still going up.
+  const settledShapes = useMemo(
+    () =>
+      new Set([
+        ...state.schemas.map((s) => s.fileId),
+        ...state.wontConvert.map((w) => w.fileId),
+      ]),
+    [state.schemas, state.wontConvert],
+  )
+  const landed = useMemo(
+    () => state.files.filter((f) => f.stage === "uploaded" && f.fileId).map((f) => f.fileId!),
+    [state.files],
+  )
+  const allShapesIn =
+    !uploading &&
+    landed.length > 0 &&
+    state.pending === 0 &&
+    landed.every((fileId) => settledShapes.has(fileId))
+
+  // Read by the loop after each response, so it is never a render behind by the
+  // time the next poll is due.
+  const doneRef = useRef(allShapesIn)
+  useEffect(() => {
+    doneRef.current = allShapesIn
+  }, [allShapesIn])
+
   const poll = usePoll(
     useCallback(
       (signal: AbortSignal) => api.pollSchemas(userId!, requestId, receivedRef.current, signal),
       [requestId, userId],
     ),
     {
-      enabled: Boolean(userId) && pollSchemas && (anyUploaded || state.files.length === 0),
-      stopWhen: (response) => response.pending === 0 && response.files.length === 0,
+      enabled:
+        Boolean(userId) &&
+        pollSchemas &&
+        hydrated &&
+        (anyRegistered || state.files.length === 0),
+      // Whichever comes first: every file accounted for, or the budget spent.
+      stopWhen: () => doneRef.current,
+      maxPolls: SCHEMA_POLL_MAX,
+      intervalFor: () => SCHEMA_POLL_MS,
       onData: (response) => dispatch({ type: "schema-poll", response }),
     },
+  )
+
+  // A loop that has stopped — settled, or out of budget — has to start again
+  // when another file lands, which is what Drop more files does. A loop still
+  // running already covers it, and restarting would abort its poll mid-flight.
+  const landedKey = landed.join(",")
+  const restart = poll.refresh
+  const stopped = poll.stopped
+  const restartedFor = useRef(landedKey)
+  useEffect(() => {
+    if (!stopped) {
+      restartedFor.current = landedKey
+      return
+    }
+    if (landedKey && landedKey !== restartedFor.current) {
+      restartedFor.current = landedKey
+      restart()
+    }
+  }, [landedKey, restart, stopped])
+
+  // A row that never got a signed url has nothing to PUT to, so it goes back
+  // through signing. One that has one skips straight to the bytes.
+  const sendAgain = useCallback(
+    (files: BatchFile[]) => {
+      if (!userId || files.length === 0) return
+      dispatch({ type: "restaged", localIds: files.map((f) => f.localId) })
+      void runUpload(
+        userId,
+        requestId,
+        files.map((f) => ({ ...f, stage: "staged" as const, failure: undefined })),
+        dispatch,
+        setUploading,
+      )
+    },
+    [requestId, userId],
+  )
+
+  // A reloaded row has no File handle left, so it is not offered a retry.
+  const failedWithBytes = useMemo(
+    () => state.files.filter((f) => f.stage === "failed" && f.file),
+    [state.files],
   )
 
   const retryUpload = useCallback(
     (localId: string) => {
       const file = state.files.find((f) => f.localId === localId)
-      if (!file?.signed || !file.file || !userId) return
+      if (!file?.file || !userId) return
+      if (!file.signed) {
+        sendAgain([file])
+        return
+      }
       dispatch({ type: "retrying", localId })
       void retryOne(userId, requestId, file, dispatch)
     },
-    [requestId, state.files, userId],
+    [requestId, sendAgain, state.files, userId],
+  )
+
+  const retryAllUploads = useCallback(
+    () => sendAgain(failedWithBytes),
+    [failedWithBytes, sendAgain],
+  )
+
+  const discardFailed = useCallback(() => {
+    const failed = state.files.filter((f) => f.stage === "failed" || f.stage === "rejected")
+    if (failed.length === 0) return state.files.length
+    dispatch({ type: "discarded", localIds: failed.map((f) => f.localId) })
+    return state.files.length - failed.length
+  }, [state.files])
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      if (!userId || files.length === 0) return
+      const added = stageFiles(files).map(toBatchFile)
+      dispatch({ type: "added", files: added })
+      const accepted = added.filter((f) => f.stage === "staged")
+      if (accepted.length > 0) {
+        void runUpload(userId, requestId, accepted, dispatch, setUploading)
+      }
+    },
+    [requestId, userId],
   )
 
   const saveSchema = useCallback<UseBatch["saveSchema"]>(
@@ -394,7 +549,14 @@ export function useBatch(
     uploadedCount,
     acceptedCount,
     schemaPollFailure: poll.failure,
+    // Out of polls with shapes still missing: the screen says so and lets the
+    // batch go anyway, rather than spinning on a promise it cannot keep.
+    schemasStalled: poll.exhausted && !allShapesIn,
+    retryableCount: failedWithBytes.length,
     retryUpload,
+    retryAllUploads,
+    discardFailed,
+    addFiles,
     saveSchema,
     convert,
   }
@@ -448,14 +610,40 @@ async function runUpload(
       headers: byLocalId[file.localId].uploadHeaders,
     }))
 
+  // Each file is confirmed the moment its own bytes land, not when the last
+  // file in the drop does: inspection of the first file then runs while the
+  // third is still going up, and the row's eye starts filling with it.
+  const confirmed = new Set<string>()
+  const inFlight: Promise<void>[] = []
+
   const outcomes = await uploadAll(tasks, {
     onProgress: (localId, loaded, total) =>
       dispatch({ type: "progress", localId, loaded, total }),
-    onSettled: (localId, failure) => dispatch({ type: "upload-settled", localId, failure }),
+    onSettled: (localId, failure) => {
+      dispatch({ type: "upload-settled", localId, failure })
+      if (failure) return
+      const file = accepted.find((f) => f.localId === localId)
+      if (!file || !byLocalId[localId]) return
+      inFlight.push(
+        // Quiet: a confirm that does not go through says nothing yet, because
+        // the sweep below gets one more go at it before the row is called bad.
+        confirm(userId, requestId, [file], byLocalId, dispatch, { quiet: true }).then((ok) => {
+          if (ok) confirmed.add(localId)
+        }),
+      )
+    },
   })
 
-  const landed = accepted.filter((file) => !outcomes.get(file.localId) && byLocalId[file.localId])
-  await confirm(userId, requestId, landed, byLocalId, dispatch)
+  await Promise.all(inFlight)
+
+  // Anything that reached the bucket but whose confirm did not reach us. Left
+  // alone it would sit at Uploaded here and UPLOADING on the server, with
+  // nothing queued to read it.
+  const missed = accepted.filter(
+    (file) =>
+      !outcomes.get(file.localId) && byLocalId[file.localId] && !confirmed.has(file.localId),
+  )
+  await confirm(userId, requestId, missed, byLocalId, dispatch)
   setUploading(false)
 }
 
@@ -469,8 +657,9 @@ async function confirm(
   landed: BatchFile[],
   byLocalId: Record<string, SignedUrlFile>,
   dispatch: (action: Action) => void,
-) {
-  if (landed.length === 0) return
+  options: { quiet?: boolean } = {},
+): Promise<boolean> {
+  if (landed.length === 0) return true
   try {
     const response = await api.confirmUploads(
       userId,
@@ -515,12 +704,18 @@ async function confirm(
         }))
         .filter((file) => landedIds.has(file.fileId)),
     )
+    return true
   } catch (error) {
+    // Quiet leaves the rows exactly where they are: the caller has another
+    // attempt in hand, and a row that flickers through failed and back is a
+    // worse account of what happened than one that waits a moment.
+    if (options.quiet) return false
     const failure = error instanceof ApiError ? error.failure : { class: "unknown" as const }
     dispatch({
       type: "upload-confirmed",
       entries: landed.map((file) => ({ fileId: byLocalId[file.localId].fileId, failure })),
     })
+    return false
   }
 }
 

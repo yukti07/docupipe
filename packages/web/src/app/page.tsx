@@ -123,28 +123,31 @@ function Workspace() {
   return (
     <>
       <AppHeader userId={userId} />
-      <main className="mx-auto w-full max-w-[1080px] flex-1 px-6 py-8">
-        <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Your workspace</h1>
-        <p className="mt-1 max-w-prose text-[13px] text-subtle-foreground">
-          Drop a pile of documents in. Each one is read on its own and tells you what its table
-          looks like, before anything is converted.
-        </p>
+      <main className="mx-auto w-full max-w-[1100px] flex-1 px-6 py-10">
+        {/* The drop zone is the page — it carries the visible heading, so the
+            document heading is here for a screen reader and nowhere else. */}
+        <h1 className="sr-only">Your workspace</h1>
 
-        <div className="mt-6">
-          <DropZone
-            onFiles={onFiles}
-            disabledReason={userId ? null : "Waking up your workspace — one moment."}
-          />
-          {dropFailure && <FailureMessage failure={dropFailure} className="mt-3" />}
-        </div>
+        <DropZone
+          onFiles={onFiles}
+          disabledReason={userId ? null : "Waking up your workspace — one moment."}
+        />
+        {dropFailure && <FailureMessage failure={dropFailure} className="mt-3" />}
 
         <section className="mt-10">
-          <h2 className="text-[13px] font-medium text-subtle-foreground">Batches</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[13px] font-medium text-subtle-foreground">Batches</h2>
+            {loaded && batches.length > 0 && (
+              <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
+                {batches.length}
+              </span>
+            )}
+          </div>
           {!loaded ? (
             <LoadingState label="Reading your workspace" className="mt-4" />
           ) : batches.length === 0 ? (
             <EmptyState
-              className="rounded-xl border border-border-faint bg-card/60"
+              className="mt-3 rounded-xl border border-dashed border-border-subtle bg-card/50"
               title="No batches yet"
               body="The ones you start will be listed here, newest first."
             />

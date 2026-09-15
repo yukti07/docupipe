@@ -66,6 +66,13 @@ class Config:
     topic_file_uploaded: str
     topic_convert_requested: str
 
+    #: "push" (Cloud Run receives a push subscription) or "pull" (the worker
+    #: opens a streaming pull of its own). Pub/Sub cannot push to localhost,
+    #: so a worker run outside Cloud Run against real Pub/Sub needs "pull".
+    pubsub_delivery: str
+    subscription_file_uploaded: str
+    subscription_convert_requested: str
+
     lease_seconds: int
     max_attempts: int
     outbox_max_attempts: int
@@ -111,6 +118,12 @@ def _build() -> Config:
             f"STORAGE_BACKEND must be 'gcs' or 'local', got {backend_raw!r}"
         ) from exc
 
+    delivery = _env("PUBSUB_DELIVERY", "push").strip().lower()
+    if delivery not in ("push", "pull"):
+        raise RuntimeError(
+            f"PUBSUB_DELIVERY must be 'push' or 'pull', got {delivery!r}"
+        )
+
     # Cloud Run injects a per-instance id; fall back to a hostname locally so
     # the lease still identifies one process.
     instance_id = (
@@ -136,6 +149,13 @@ def _build() -> Config:
         topic_file_uploaded=_env("PUBSUB_TOPIC_FILE_UPLOADED", "file-uploaded"),
         topic_convert_requested=_env(
             "PUBSUB_TOPIC_CONVERT_REQUESTED", "convert-requested"
+        ),
+        pubsub_delivery=delivery,
+        subscription_file_uploaded=_env(
+            "PUBSUB_SUBSCRIPTION_FILE_UPLOADED", "file-uploaded-local"
+        ),
+        subscription_convert_requested=_env(
+            "PUBSUB_SUBSCRIPTION_CONVERT_REQUESTED", "convert-requested-local"
         ),
         # The lease must be longer than the work, and the Pub/Sub ack deadline
         # at least as long as the lease, or a healthy worker gets its file
