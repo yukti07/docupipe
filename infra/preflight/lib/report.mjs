@@ -12,16 +12,21 @@
  * refusing to claim something was verified when it was not.
  */
 
+// Built at runtime rather than written as escape literals: an ESC byte in a
+// source file survives almost every editor and almost no copy-paste.
+const ESC = String.fromCharCode(27)
+const code = (n) => `${ESC}[${n}m`
+
 const C = process.stdout.isTTY
   ? {
-      reset: "[0m",
-      dim: "[2m",
-      bold: "[1m",
-      red: "[31m",
-      green: "[32m",
-      yellow: "[33m",
-      blue: "[34m",
-      grey: "[90m",
+      reset: code(0),
+      dim: code(2),
+      bold: code(1),
+      red: code(31),
+      green: code(32),
+      yellow: code(33),
+      blue: code(34),
+      grey: code(90),
     }
   : new Proxy({}, { get: () => "" })
 

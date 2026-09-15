@@ -7,11 +7,35 @@ standard way to lose a column.
 
 ```bash
 npm install
-npx prisma migrate deploy      # apply (production, CI, compose)
+npx prisma migrate deploy      # apply, where a DATABASE_URL exists
 npx prisma migrate dev         # author a new migration
 npx prisma generate            # regenerate the client
 npx prisma studio              # browse
 ```
+
+## Applying to Cloud SQL
+
+`prisma migrate deploy` takes a connection URL, and reaching Cloud SQL without
+a public allowlist means the connector, which supplies a socket rather than a
+URL. `scripts/migrate.mjs` closes that gap without needing the
+`cloud-sql-proxy` binary:
+
+```bash
+export INSTANCE_CONNECTION_NAME=project:region:instance
+export DB_NAME=...  DB_USER=...  DB_PASSWORD=...
+gcloud auth application-default login
+
+npm run migrate:status      # what is applied
+npm run migrate:dry-run     # what would be applied
+npm run migrate:cloudsql    # apply
+```
+
+It writes Prisma's own `_prisma_migrations` table with Prisma's checksum, so
+`prisma migrate status` agrees with it afterwards and a later
+`prisma migrate deploy` correctly sees nothing to do. One transaction per
+migration, so a failure leaves the database exactly as it was. It refuses to
+re-run a migration whose file has changed since it was applied, and says so —
+edit forward with a new migration instead.
 
 ## Tables
 

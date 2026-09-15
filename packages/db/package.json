@@ -9,13 +9,17 @@
     "generate": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
-    "migrate:status": "prisma migrate status",
+    "migrate:status": "node scripts/migrate.mjs --status",
     "studio": "prisma studio",
     "format": "prisma format",
-    "validate": "prisma validate"
+    "validate": "prisma validate",
+    "migrate:cloudsql": "node scripts/migrate.mjs",
+    "migrate:dry-run": "node scripts/migrate.mjs --dry-run"
   },
   "dependencies": {
-    "@prisma/client": "^6.2.1"
+    "@prisma/client": "^6.2.1",
+    "@google-cloud/cloud-sql-connector": "^1.4.0",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "prisma": "^6.2.1"
