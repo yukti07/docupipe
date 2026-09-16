@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
-import { api } from "@/lib/api"
+import { api, FIXTURES } from "@/lib/api"
 import type { ResultPollResponse } from "@/lib/api/types"
 import { writeAllowance } from "@/lib/allowance"
 import { usePoll, type PollState } from "@/lib/polling"
@@ -11,9 +11,13 @@ import { useAsync } from "@/lib/useAsync"
  * The result cadence, pinned for now: nothing for the first two minutes,
  * because a batch that has just been queued has nothing to report yet, then
  * every 5 s for ten minutes. A paused batch keeps its own slower beat.
+ *
+ * On fixtures there is no worker to wait for, and two minutes of spinner is
+ * two minutes of a screen that cannot be looked at. The cadence is the only
+ * thing that changes; every state the screen can reach is still reachable.
  */
-export const RESULT_FIRST_POLL_MS = 120_000
-export const RESULT_POLL_MS = 5000
+export const RESULT_FIRST_POLL_MS = FIXTURES ? 0 : 120_000
+export const RESULT_POLL_MS = FIXTURES ? 1500 : 5000
 export const RESULT_POLL_MAX = 120
 export const PAUSED_POLL_MS = 30_000
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@/test/render"
+import { fireEvent, render, screen, waitFor } from "@/test/render"
 import { DropZone } from "./DropZone"
 
 const zone = () => screen.getByText("Drop your documents here").closest("[data-state]")!
@@ -28,12 +28,24 @@ describe("DropZone", () => {
     expect(screen.getByText(/isn't a file we can take/i)).toBeVisible()
   })
 
-  it("hands the dropped files over", () => {
+  // A dropped folder has to be walked before anything can be handed over, and
+  // walking it is asynchronous — so every drop settles a tick later now.
+  it("hands the dropped files over", async () => {
     const onFiles = vi.fn()
     render(<DropZone onFiles={onFiles} />)
     const file = new File(["x"], "invoice-1044.pdf")
     fireEvent.drop(zone(), { dataTransfer: { types: ["Files"], files: [file] } })
-    expect(onFiles).toHaveBeenCalledWith([file])
+    await waitFor(() => expect(onFiles).toHaveBeenCalledWith([file]))
+  })
+
+  it("says so when what was dropped held no files at all", async () => {
+    const onFiles = vi.fn()
+    render(<DropZone onFiles={onFiles} />)
+    fireEvent.drop(zone(), { dataTransfer: { types: ["Files"], files: [] } })
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "There were no files in what you dropped.",
+    )
+    expect(onFiles).not.toHaveBeenCalled()
   })
 
   it("offers a real file input and a real folder input, so the keyboard can do everything", () => {

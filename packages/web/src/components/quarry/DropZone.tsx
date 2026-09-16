@@ -3,6 +3,7 @@
 import { FolderUp, Upload } from "lucide-react"
 import { useRef, useState, type DragEvent } from "react"
 import { Button } from "@/components/ui/button"
+import { filesFromDrop } from "@/lib/dropped"
 import { ACCEPTED_SUMMARY, ACCEPT_ATTRIBUTE, SIZE_CAP_SUMMARY } from "@/lib/preflight"
 import { cn } from "@/lib/utils"
 
@@ -21,6 +22,9 @@ function dragCarriesFiles(event: DragEvent<HTMLElement>): boolean {
 
 export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) {
   const [drag, setDrag] = useState<"idle" | "dragging" | "dragging-invalid">("idle")
+  // A folder with nothing in it is a drop that would otherwise do nothing at
+  // all, and a drop zone that swallows a drop is the worst of the options.
+  const [emptyDrop, setEmptyDrop] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const disabled = Boolean(disabledReason)
@@ -28,6 +32,7 @@ export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) 
   function onDragOver(event: DragEvent<HTMLElement>) {
     if (disabled) return
     event.preventDefault()
+    setEmptyDrop(false)
     setDrag(dragCarriesFiles(event) ? "dragging" : "dragging-invalid")
   }
 
@@ -35,8 +40,12 @@ export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) 
     if (disabled) return
     event.preventDefault()
     setDrag("idle")
-    const files = Array.from(event.dataTransfer?.files ?? [])
-    if (files.length > 0) onFiles(files)
+    // A dropped folder has to be walked, and walking it is asynchronous — so
+    // the DataTransfer is read inside `filesFromDrop` before it is emptied.
+    void filesFromDrop(event.dataTransfer).then((files) => {
+      setEmptyDrop(files.length === 0)
+      if (files.length > 0) onFiles(files)
+    })
   }
 
   return (
@@ -130,6 +139,12 @@ export function DropZone({ onFiles, disabledReason, className }: DropZoneProps) 
 
       {disabledReason && (
         <p className="text-[12.5px] text-muted-foreground">{disabledReason}</p>
+      )}
+
+      {emptyDrop && !disabledReason && (
+        <p role="status" className="text-[12.5px] text-muted-foreground">
+          There were no files in what you dropped.
+        </p>
       )}
 
       {/* Real inputs, not a div pretending: the keyboard does everything the mouse can. */}

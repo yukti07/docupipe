@@ -21,17 +21,53 @@ export type UploadEvents = {
 /** The canvas runs two at a time; more just makes every bar slower. */
 export const UPLOAD_CONCURRENCY = 2
 
+/**
+ * The scheme `FixtureSeven` signs its URLs with. There is no bucket behind it,
+ * so the PUT is simulated rather than sent — but the bar still has to move,
+ * because the bar is most of what this screen is.
+ */
+export const FIXTURE_UPLOAD_URL = "fixture://upload/"
+
+const FIXTURE_STEPS = 8
+const FIXTURE_STEP_MS = 90
+
 const failed = (message: string): Failure => ({
   class: "acquisition",
   message,
   nextStep: "Retry this file.",
 })
 
+/** Walks the progress bar to full over about three quarters of a second. */
+function putFixtureFile(
+  task: UploadTask,
+  events: Pick<UploadEvents, "onProgress">,
+  signal?: AbortSignal,
+): Promise<Failure | undefined> {
+  return new Promise((resolve) => {
+    let step = 0
+    const timer = setInterval(() => {
+      if (signal?.aborted) {
+        clearInterval(timer)
+        resolve(failed("Upload was cancelled."))
+        return
+      }
+      step += 1
+      events.onProgress?.(task.localId, (task.file.size * step) / FIXTURE_STEPS, task.file.size)
+      if (step >= FIXTURE_STEPS) {
+        clearInterval(timer)
+        resolve(undefined)
+      }
+    }, FIXTURE_STEP_MS)
+  })
+}
+
 export function putFile(
   task: UploadTask,
   events: Pick<UploadEvents, "onProgress"> = {},
   signal?: AbortSignal,
 ): Promise<Failure | undefined> {
+  if (task.url.startsWith(FIXTURE_UPLOAD_URL)) return putFixtureFile(task, events, signal)
+
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest()
     xhr.open("PUT", task.url, true)
