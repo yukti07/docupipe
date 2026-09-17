@@ -38,6 +38,7 @@ export type FailureClass =
   | "internal"
   /* client-only; never sent by the server */
   | "network"
+  | "not_implemented"
   | "unknown"
 
 export type Failure = {

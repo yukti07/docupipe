@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { act, render, screen, waitFor } from "@/test/render"
-import { WorkspaceProvider, useWorkspace, type WorkspaceBatch } from "./workspace"
+import { WorkspaceProvider, switchWorkspace, useWorkspace, type WorkspaceBatch } from "./workspace"
 
 const batch = (requestId: string, createdAt: string): WorkspaceBatch => ({
   requestId,
@@ -99,6 +99,28 @@ describe("WorkspaceProvider", () => {
     await user.click(screen.getByRole("button", { name: "remove a" }))
     await waitFor(() => expect(ids()).toEqual(["req_b:prepare"]))
     expect(JSON.parse(localStorage.getItem("quarry.workspace") ?? "[]")).toHaveLength(1)
+  })
+
+  it("takes the list with the identity it belongs to, and brings it back", async () => {
+    localStorage.setItem(
+      "quarry.workspace",
+      JSON.stringify([batch("req_a", "2026-09-14T10:00:00Z")]),
+    )
+    render(
+      <WorkspaceProvider>
+        <Probe />
+      </WorkspaceProvider>,
+    )
+    await waitFor(() => expect(ids()).toEqual(["req_a:prepare"]))
+
+    // A ?w= link adopted someone else's workspace. Their id has no rows for
+    // req_a, so a card for it would open onto nothing.
+    await act(async () => switchWorkspace("usr_mine", "usr_theirs"))
+    await waitFor(() => expect(ids()).toEqual([]))
+
+    // And the link back to the old id is not a one-way door.
+    await act(async () => switchWorkspace("usr_theirs", "usr_mine"))
+    await waitFor(() => expect(ids()).toEqual(["req_a:prepare"]))
   })
 
   it("keeps a batch that is already there from being listed twice", async () => {

@@ -12,10 +12,46 @@ npm run build
 npm run lint
 ```
 
+## Which backend am I talking to?
+
+Three modes, one switch. It writes two flags into `.env.local` and nothing else;
+`next dev` watches that file and restarts itself, so the change lands without a
+rebuild.
+
+```bash
+npm run fixtures          # which mode is on now
+npm run fixtures:off      # LIVE
+npm run fixtures:on       # FIXTURES
+npm run fixtures:mixed    # MIXED
+```
+
+| Mode | The seven routes | The five with no route yet |
+|---|---|---|
+| **LIVE** | real | refuse, saying they have no endpoint |
+| **FIXTURES** | sample data | sample data |
+| **MIXED** | real | sample data, under your own batch |
+
+`src/lib/api/index.ts` is the only place that decides, and nothing else in the app
+knows which it got — every screen imports `api`, and none of them import `live` or
+`fixtures` directly.
+
+**The five with no route yet** are `getTable`, `getEvidence`, `getRawText`,
+`getMergeGroups` and `createMerge` — the table screen, the evidence panel, the raw
+text tab and the whole merge flow (backend plan §0.9). There is nothing under
+`src/app/api/` for any of them.
+
+MIXED is what the app did unconditionally before these modes existed, and it is
+still the only way to look at those screens against a real batch. It is not the
+default because sample rows served under your own batch are indistinguishable from
+your own output, and a merged table showing twelve invented rows reads as a bug in
+the merge rather than as a screen that was never wired up. Writing a route is how a
+surface leaves this list: add it to `LiveApi` and drop it from `NotBuilt`, both in
+`src/lib/api/live.ts`.
+
 ## Looking at the UI without a backend
 
 ```bash
-npm run dev:fixtures   # NEXT_PUBLIC_FIXTURES=1
+npm run dev:fixtures   # the same as `npm run fixtures:on`, for one run only
 ```
 
 The whole app on fixtures: no Postgres, no worker, no bucket. `src/lib/api/index.ts`
@@ -28,11 +64,10 @@ tables finish one at a time. Drop files and the rows that come back are the rows
 dropped — one in seven settles without a shape and one in nine holds two tables, so
 the "won't convert" panel and the tabbed schema panel are both reachable.
 
-Open a batch link cold instead — any `/b/<anything>`, with nothing dropped — and the
+Open a batch link cold instead — any `/request/<anything>`, with nothing dropped — and the
 canned 43-file payload in `fixtures/api/schema-poll.json` stands in, which is the
-dense end of the screen. Press **Review schemas** to see it: the schema list is
-normally gated on this browser's own upload finishing, and a cold visit has no
-upload of its own to finish.
+dense end of the screen. Press **Review Schemas** for the grouped view of it at
+`/request/<anything>/schemas`, where forty invoices that read the same way are one card.
 
 The one behaviour that is not the real one is the cadence: the result poll's
 two-minute opening wait is zero here (`state/result.tsx`), because two minutes of

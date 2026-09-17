@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest"
 import { api } from "./index"
+import { NotBuilt } from "./live"
+
+describe("the surfaces with no route yet", () => {
+  it("refuses rather than serving sample rows under a real batch", async () => {
+    // What the app does without the fixture fallback, which is the default
+    // everywhere except this suite.
+    await expect(NotBuilt.getTable("req_1", "sch_32")).rejects.toMatchObject({
+      failure: { class: "not_implemented" },
+    })
+    await expect(NotBuilt.getMergeGroups("req_1")).rejects.toMatchObject({
+      failure: { class: "not_implemented" },
+    })
+  })
+})
 
 describe("the composed api", () => {
   it("serves a table from the fixture set", async () => {

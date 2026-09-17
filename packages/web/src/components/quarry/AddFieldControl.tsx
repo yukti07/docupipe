@@ -10,8 +10,13 @@ import { validateNewField } from "@/lib/schema"
 import { cn } from "@/lib/utils"
 
 /**
- * Name and type, inline. The entered value survives an invalid attempt — a
- * failed submit that clears the field makes the user do the work twice.
+ * Name and type, inline, directly under the fields the document gave us — the
+ * list reads top to bottom as "what is here, and then what you added". The
+ * dashed edge says the same thing the position does: this row is not a field
+ * yet, it is the place one would go.
+ *
+ * The entered value survives an invalid attempt — a failed submit that clears
+ * the field makes the user do the work twice.
  */
 export function AddFieldControl({
   fields,
@@ -46,10 +51,12 @@ export function AddFieldControl({
     return (
       <Button
         variant="outline"
-        size="sm"
         disabled={disabled}
         onClick={() => setOpen(true)}
-        className={cn("h-8 gap-1.5 rounded-lg bg-card text-[12.5px]", className)}
+        className={cn(
+          "h-9 w-full gap-1.5 rounded-[10px] border-dashed bg-card text-[12.5px] font-medium text-subtle-foreground shadow-none hover:text-foreground",
+          className,
+        )}
       >
         <Plus aria-hidden className="size-3.5" />
         Add field
@@ -58,7 +65,12 @@ export function AddFieldControl({
   }
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div
+      className={cn(
+        "flex flex-col gap-2 rounded-[10px] border border-dashed border-border bg-card p-2.5",
+        className,
+      )}
+    >
       <div className="flex items-center gap-2">
         <Input
           autoFocus

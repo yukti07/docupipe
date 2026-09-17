@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ApiError } from "@/lib/api"
+import { toFailure } from "@/lib/api"
 import type { Failure } from "@/lib/api/types"
 
 type Settled<T> = { key: string; attempt: number; data?: T; failure?: Failure }
@@ -35,11 +35,7 @@ export function useAsync<T>(
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
-        setSettled({
-          key,
-          attempt,
-          failure: error instanceof ApiError ? error.failure : { class: "unknown" },
-        })
+        setSettled({ key, attempt, failure: toFailure(error) })
       })
     return () => controller.abort()
     // `load` is rebuilt on every render by most callers; the key is what

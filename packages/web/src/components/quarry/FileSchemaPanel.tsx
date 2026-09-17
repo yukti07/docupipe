@@ -4,7 +4,7 @@ import { SchemaEditor } from "@/components/quarry/SchemaEditor"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Failure, SchemaField } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
-import type { SchemaState } from "@/lib/schema"
+import type { SchemaState, UpdateTarget } from "@/lib/schema"
 
 /**
  * The panel belongs to a *file*, not to a table. A file that held ten tables
@@ -19,7 +19,7 @@ export function FileSchemaPanel({
   schemas,
   reading,
   noShape,
-  applyTargetsFor,
+  targetsFor,
   onSave,
   onClose,
   frozen,
@@ -29,7 +29,7 @@ export function FileSchemaPanel({
   schemas: SchemaState[]
   reading?: boolean
   noShape?: Failure
-  applyTargetsFor: (schema: SchemaState) => SchemaState[]
+  targetsFor: (schema: SchemaState) => UpdateTarget[]
   onSave: (
     schemaId: string,
     fields: SchemaField[],
@@ -46,7 +46,7 @@ export function FileSchemaPanel({
         fileName={fileName}
         reading={reading}
         noShape={noShape}
-        applyTargets={only ? applyTargetsFor(only) : []}
+        updateTargets={only ? targetsFor(only) : []}
         onClose={onClose}
         frozen={frozen}
         onSave={(fields, alsoApplyTo) => onSave(only!.schemaId, fields, alsoApplyTo)}
@@ -85,7 +85,7 @@ export function FileSchemaPanel({
           <SchemaEditor
             schema={schema}
             fileName={fileName}
-            applyTargets={applyTargetsFor(schema)}
+            updateTargets={targetsFor(schema)}
             onClose={onClose}
             frozen={frozen}
             onSave={(fields, alsoApplyTo) => onSave(schema.schemaId, fields, alsoApplyTo)}

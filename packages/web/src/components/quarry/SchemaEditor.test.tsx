@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@/test/render"
 import type { SchemaField } from "@/lib/api/types"
-import type { SchemaState } from "@/lib/schema"
+import type { SchemaState, UpdateTarget } from "@/lib/schema"
 import { AddFieldControl } from "./AddFieldControl"
 import { SchemaEditor } from "./SchemaEditor"
 import { SchemaFieldRow } from "./SchemaFieldRow"
@@ -25,6 +25,12 @@ const schema = (over: Partial<SchemaState> = {}): SchemaState => ({
   original: FIELDS,
   current: FIELDS,
   ...over,
+})
+
+/** A table this schema can be pushed onto, and the field it would gain, if any. */
+const target = (over: Partial<SchemaState> = {}, added: string[] = []): UpdateTarget => ({
+  schema: schema(over),
+  added,
 })
 
 const ok = async () => ({ ok: true }) as const
@@ -109,12 +115,52 @@ describe("SchemaEditor", () => {
     expect(screen.getByRole("button", { name: /Add field/ })).toBeVisible()
   })
 
-  it("keeps Save shut until something actually changed, and says why", () => {
+  it("keeps Save shut until something actually changed, without printing why", () => {
     render(<SchemaEditor schema={schema()} fileName="invoice-1045.pdf" onSave={ok} />)
     expect(
       screen.getByRole("button", { name: /Save — Nothing changed yet/ }),
     ).toBeDisabled()
-    expect(screen.getByText(/Nothing changed yet/)).toBeVisible()
+    // The reason stays in the accessible name and off the screen: a line of
+    // prose under an untouched form is noise on every schema anyone opens.
+    expect(screen.queryByText(/Nothing changed yet/)).not.toBeInTheDocument()
+  })
+
+  it("offers exactly one of Save and Update matching tables at a time", async () => {
+    const { user } = render(
+      <SchemaEditor
+        schema={schema()}
+        fileName="invoice-1045.pdf"
+        updateTargets={[target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" })]}
+        onSave={ok}
+      />,
+    )
+    // Nothing edited: this schema is what the server holds, so it can be spread.
+    expect(screen.getByRole("button", { name: "Update matching tables" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /^Save/ })).toBeDisabled()
+
+    await user.click(screen.getByRole("combobox", { name: "Type of total" }))
+    await user.click(screen.getByRole("option", { name: "currency" }))
+
+    // Edited: pushing now would write a draft onto files nobody has looked at,
+    // and the footer says so rather than leaving a dead button to puzzle over.
+    expect(
+      screen.getByRole("button", { name: "Update matching tables — save your change first" }),
+    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled()
+    expect(screen.getByText("Save this schema before pushing it anywhere else.")).toBeVisible()
+  })
+
+  it("puts Add field under the columns, not among the commit buttons", () => {
+    const { container } = render(
+      <SchemaEditor schema={schema()} fileName="invoice-1045.pdf" onSave={ok} />,
+    )
+    const add = screen.getByRole("button", { name: /Add field/ })
+    expect(add.closest("footer")).toBeNull()
+    expect(add.className).toContain("border-dashed")
+    // After the last field row it came from, in document order.
+    const total = screen.getByText("total")
+    expect(total.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.querySelector("footer")).not.toBeNull()
   })
 
   it("saves a type change, and only this file when apply-to-all is off", async () => {
@@ -153,50 +199,133 @@ describe("SchemaEditor", () => {
     expect(screen.getByText(/Schemas freeze at Convert/)).toBeVisible()
   })
 
-  it("carries the count of matching files in the apply-to-all label", async () => {
-    const targets = [schema({ schemaId: "sch_32", fileName: "invoice-1046.pdf" })]
-    render(
+  it("keeps the count out of the button and inside the choice it opens", async () => {
+    const { user } = render(
       <SchemaEditor
         schema={schema()}
         fileName="invoice-1045.pdf"
-        applyTargets={targets}
+        updateTargets={[
+          target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" }),
+          target({ schemaId: "sch_33", fileName: "invoice-1047.pdf" }, ["total"]),
+        ]}
         onSave={ok}
       />,
     )
-    expect(screen.getByRole("button", { name: "Apply to 1 file" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Update matching tables" }))
+
+    expect(screen.getByText("Choose which of the 2 matching tables take this schema.")).toBeVisible()
+    // The near-matches are named up front, because taking the lot is the one
+    // option that never shows you what it is about to touch.
+    expect(screen.getByText(/All 2 at once\. 1 of them differ by a field\./)).toBeVisible()
   })
 
-  it("names the affected files before it commits to them", async () => {
-    const targets = [
-      schema({ schemaId: "sch_32", fileName: "invoice-1046.pdf" }),
-      schema({ schemaId: "sch_33", fileName: "invoice-1047.pdf" }),
-    ]
+  it("writes onto every match when you take the lot", async () => {
     const onSave = vi.fn().mockResolvedValue({ ok: true })
     const { user } = render(
       <SchemaEditor
         schema={schema()}
         fileName="invoice-1045.pdf"
-        applyTargets={targets}
+        updateTargets={[
+          target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" }),
+          target({ schemaId: "sch_33", fileName: "invoice-1047.pdf" }),
+        ]}
         onSave={onSave}
       />,
     )
-    await user.click(screen.getByRole("button", { name: "Apply to 2 files" }))
-    expect(screen.getByText("invoice-1046.pdf · table 1")).toBeVisible()
-    expect(screen.getByText("invoice-1047.pdf · table 1")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Update matching tables" }))
     expect(onSave).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole("button", { name: "Include these 2" }))
+    await user.click(screen.getByRole("menuitem", { name: /Update all matching tables/ }))
+    await user.click(screen.getByRole("button", { name: "Update 2 tables" }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+    expect(onSave.mock.calls[0][1]).toEqual(["sch_32", "sch_33"])
+    expect(await screen.findByText("Updated 2 other tables.")).toBeVisible()
+  })
+
+  it("lets you pick the tables by hand, and touches only the ones ticked", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true })
+    const { user } = render(
+      <SchemaEditor
+        schema={schema()}
+        fileName="invoice-1045.pdf"
+        updateTargets={[
+          target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" }),
+          target({ schemaId: "sch_33", fileName: "invoice-1047.pdf" }),
+          target({ schemaId: "sch_34", fileName: "invoice-1048.pdf" }, ["total"]),
+        ]}
+        onSave={onSave}
+      />,
+    )
+    await user.click(screen.getByRole("button", { name: "Update matching tables" }))
+    await user.click(screen.getByRole("menuitem", { name: /Select tables/ }))
+
+    expect(screen.getByText(/Exact same fields/)).toBeVisible()
+    expect(screen.getByText(/One field differs/)).toBeVisible()
+    // The field a near-match would gain is named before it can be ticked.
+    expect(screen.getByText(/no total .* added empty/)).toBeVisible()
+
+    await user.click(screen.getByRole("checkbox", { name: "invoice-1046.pdf" }))
+    expect(screen.getByText("1 of 3 chosen")).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "Update 1 table" }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+    expect(onSave.mock.calls[0][1]).toEqual(["sch_32"])
+    expect(await screen.findByText("Updated 1 other table.")).toBeVisible()
+  })
+
+  it("keeps the selection on screen when the write fails", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: false, failure: { class: "network" } })
+    const { user } = render(
+      <SchemaEditor
+        schema={schema()}
+        fileName="invoice-1045.pdf"
+        updateTargets={[target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" })]}
+        onSave={onSave}
+      />,
+    )
+    await user.click(screen.getByRole("button", { name: "Update matching tables" }))
+    await user.click(screen.getByRole("menuitem", { name: /Select tables/ }))
+    await user.click(screen.getByRole("checkbox", { name: "invoice-1046.pdf" }))
+    await user.click(screen.getByRole("button", { name: "Update 1 table" }))
+
+    expect(await screen.findByText(/reach the server/)).toBeVisible()
+    expect(screen.getByText("1 of 1 chosen")).toBeVisible()
+    expect(screen.getByRole("checkbox", { name: "invoice-1046.pdf" })).toBeChecked()
+  })
+
+  it("saves the edit first, then spreads it — one click each, never a toggle", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true })
+    const { user } = render(
+      <SchemaEditor
+        schema={schema()}
+        fileName="invoice-1045.pdf"
+        updateTargets={[target({ schemaId: "sch_32", fileName: "invoice-1046.pdf" })]}
+        onSave={onSave}
+      />,
+    )
     await user.click(screen.getByRole("combobox", { name: "Type of total" }))
     await user.click(screen.getByRole("option", { name: "currency" }))
     await user.click(screen.getByRole("button", { name: "Save" }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-    expect(onSave.mock.calls[0][1]).toEqual(["sch_32", "sch_33"])
-    expect(await screen.findByText("Saved to 3 files.")).toBeVisible()
+    expect(onSave.mock.calls[0][1]).toEqual([])
+    // Save has nothing left to do, and the footer names what it committed.
+    expect(await screen.findByText(/committed for this table/)).toBeVisible()
+    expect(screen.getByRole("button", { name: /Saved/ })).toBeDisabled()
+
+    await user.click(await screen.findByRole("button", { name: "Update matching tables" }))
+    await user.click(screen.getByRole("menuitem", { name: /Update all matching tables/ }))
+    await user.click(screen.getByRole("button", { name: "Update 1 table" }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
+    expect(onSave.mock.calls[1][1]).toEqual(["sch_32"])
+    expect(await screen.findByText("Updated 1 other table.")).toBeVisible()
   })
 
-  it("says plainly when no other file started with this shape", () => {
+  it("says plainly when no other table has these fields", () => {
     render(<SchemaEditor schema={schema()} fileName="invoice-1045.pdf" onSave={ok} />)
-    expect(screen.getByText("No other file started with this shape.")).toBeVisible()
+    expect(screen.getByText("No other table has these fields.")).toBeVisible()
   })
 })

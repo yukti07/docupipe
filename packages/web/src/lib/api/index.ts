@@ -1,27 +1,48 @@
 import { FixtureApi } from "./fixtures"
 import { FixtureSeven } from "./fixtureSeven"
-import { LiveApi } from "./live"
+import { LiveApi, NotBuilt } from "./live"
 import type { QuarryApi } from "./contract"
 
 /**
- * NEXT_PUBLIC_FIXTURES=1 runs the whole app on fixtures — no server, no
- * Postgres, no worker. It exists to look at the UI, and nothing outside this
- * file knows which side it got: every screen imports `api` and no screen
- * imports `live` or `fixtures` directly.
+ * Which backend the app talks to. Nothing outside this file knows which one it
+ * got: every screen imports `api`, and no screen imports `live` or `fixtures`
+ * directly.
  *
- * Next inlines this at build time, so it is a restart to change, and it is
- * undefined under vitest — the tests keep the live wiring they were written on.
+ *   npm run fixtures:off      the real backend, and nothing invented
+ *   npm run fixtures:on       sample data everywhere — no server at all
+ *   npm run fixtures:mixed    the real backend, with sample data for the five
+ *                             surfaces that have no route yet
+ *
+ * Next inlines these at build time, so the flags are read once when the bundle
+ * is built — `next dev` restarts itself when `.env.local` changes, which is
+ * what makes the switch feel instant.
  */
 export const FIXTURES = process.env.NEXT_PUBLIC_FIXTURES === "1"
 
 /**
- * The seven routes are live; §0.9's surfaces are fixtures. Moving one across
- * is a single line here and no change to any screen.
+ * The five surfaces with no route yet serve sample data instead of refusing.
+ *
+ * This is what the app did unconditionally before, and it is still the only way
+ * to look at those screens against a real batch. It is opt-in now because the
+ * default should not be handing someone rows that are not theirs. It is on in
+ * the test run, where the fixture *is* the thing under test.
+ */
+const FIXTURE_FALLBACK = process.env.NEXT_PUBLIC_FIXTURE_FALLBACK === "1"
+
+/**
+ * **Fixtures:** all twelve surfaces are sample data. Postgres, the worker and
+ * the bucket are all absent, and nothing on screen belongs to anyone.
+ *
+ * **Live:** the seven routes are real. The other five have no route yet, so by
+ * default they refuse with a sentence that says so — see `NotBuilt` in
+ * `live.ts` — and only fall back to sample data when asked to. Sample rows
+ * served under a real batch are indistinguishable from the user's own, which is
+ * a worse failure than an honest one.
  */
 export const api: QuarryApi = FIXTURES
-  ? { ...FixtureApi, ...LiveApi, ...FixtureSeven }
-  : { ...FixtureApi, ...LiveApi }
+  ? { ...FixtureApi, ...FixtureSeven }
+  : { ...(FIXTURE_FALLBACK ? FixtureApi : NotBuilt), ...LiveApi }
 
 export * from "./contract"
 export * from "./types"
-export { ApiError } from "./http"
+export { ApiError, toFailure } from "./http"

@@ -52,9 +52,15 @@ export function DownloadAllDialog({
   async function download() {
     setPreparing(true)
     setFailure(null)
+    setDone(false)
     try {
-      const tables = await Promise.all(
+      // Settled, not all: one table that will not come back is a reason to be
+      // short a file, never a reason to throw away the nineteen that did.
+      const answers = await Promise.allSettled(
         finished.map((file) => api.getTable(requestId, file.schemaId)),
+      )
+      const tables = answers.flatMap((answer) =>
+        answer.status === "fulfilled" ? [answer.value] : [],
       )
       for (const table of tables) {
         const { text } = toCsv(table, { delimiter: format })
@@ -64,7 +70,18 @@ export function DownloadAllDialog({
           format === "," ? "text/csv;charset=utf-8" : "text/tab-separated-values;charset=utf-8",
         )
       }
-      setDone(true)
+      setDone(tables.length > 0)
+      const missing = answers.length - tables.length
+      if (missing > 0) {
+        setFailure({
+          class: "unknown",
+          message:
+            tables.length === 0
+              ? "Couldn't build the files."
+              : `${formatCount(tables.length)} of ${formatCount(answers.length)} tables downloaded. ${formatCount(missing)} couldn't be built.`,
+          nextStep: "Try the download again for the ones that are missing.",
+        })
+      }
     } catch {
       setFailure({
         class: "unknown",
@@ -135,7 +152,7 @@ export function DownloadAllDialog({
 
         {preparing && <LoadingState label="Building your files" />}
         {failure && <FailureMessage failure={failure} />}
-        {done && !preparing && (
+        {done && !failure && !preparing && (
           <p role="status" className="text-[12.5px] text-subtle-foreground">
             Downloaded. Check your browser&apos;s downloads folder.
           </p>

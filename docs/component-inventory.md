@@ -71,7 +71,7 @@ writing your own.
 | `separator` · `scroll-area` | Layout |
 | `skeleton` | Table and panel loading |
 | `sonner` | Toasts — confirmations only, never errors |
-| `popover` | Apply-to-all file list, filter menus |
+| `popover` · `dropdown-menu` | The update-other-files choice, filter menus |
 | `checkbox` · `switch` | Merge selection, settings, row selection |
 | `alert` | Base for `PausedBanner` and inline failures |
 
@@ -138,18 +138,22 @@ how the two screens drift apart.
 | D06 | **`SchemaFieldRow`** | One field: name (read-only) and type (editable) | `detected` · `type-changed` · `added-by-you` · `invalid` |
 | D07 | **`FieldTypeSelect`** | The type control — the only editable thing on a field | `text` · `number` · `date` · `currency` · `boolean` · `list` |
 | D08 | **`AddFieldControl`** | Inline name + type for a field the user adds | `idle` · `open` · `invalid` |
-| D09 | **`ApplyToAllControl`** | Propagate this schema, with the count in its label | `unavailable` · `offered` · `confirming` · `applied` |
-| D10 | **`SchemaCard`** | One schema in the all-files view and the merge picker | `ready` · `edited` · `shared-with-n` · `failed` |
-| D11 | **`SchemaGroupList`** | Schemas grouped by identical shape, with counts | — |
+| D09 | **`UpdateOthersControl`** | Push this schema past the table on screen — a button that opens a choice, never a write | `unavailable` · `gated` · `offered` · `open` · `updating` |
+| D09b | **`UpdateTargetsPicker`** | The panel's second page: which files take this schema, grouped by how far they are from it | `choosing` · `filtered` · `none-match` · `updating` · `failed` |
+| D10 | **`SchemaGroupCard`** | One card per schema on the review screen, carrying its state and the files behind it | `generated` · `modified` · `unsaved` · `selected` |
 | D41 | **`FieldTypeSelect`** | The six types, as the one editable control on a field row | `text` · `number` · `date` · `currency` · `yes/no` · `list` |
 
 **`SchemaFieldRow` must render the field name as plainly non-editable** — mono, no input chrome, no
 hover affordance. A greyed-out rename control would be worse than nothing: an affordance that never
 works reads as a bug, and this one would read as a bug on every row of every schema.
 
-**`ApplyToAllControl` carries its count in its label** (*"Apply to all · 12 files"*), because that
-count is the entire value of the feature. It never applies straight from the button — pressing it
-reveals the affected file names first.
+**The wide write is a two-step, and the first step is Save.** Editing a field enables Save and
+shuts *Update matching tables*; saving commits this table and opens it again. Nothing is ever pushed
+onto files nobody is looking at without first being committed to the one on screen.
+
+**`UpdateOthersControl` never writes from the button.** It opens two ways of meaning it — *Select
+tables*, which hands over to `UpdateTargetsPicker`, and *Update all matching tables*, which
+carries the count and how many of them differ by a field.
 
 ### Processing — S04, S05
 
@@ -339,8 +343,9 @@ Roughly the order these become necessary, which is also roughly the safest order
    EmptyState, ErrorState, PageHeader, SplitPane, KeyHint
 2. DropZone, FileRow, FileList                            → uploading works
 3. SchemaEditor, SchemaFieldRow, FieldTypeSelect,
-   AddFieldControl, SchemaCard                            → S03 works
-4. ApplyToAllControl, SchemaGroupList, ConvertBar         → S02 is complete
+   AddFieldControl                                        → S03 works
+4. UpdateOthersControl, UpdateTargetsPicker,
+   SchemaGroupCard, ConvertBar                            → S02 and S03 are complete
 5. StatusSentence, PausedBanner                           → S04 works
 6. DataTable, DataCell, MarkedCellReason, BatchCard       → S06 and S01 work
 7. EvidencePanel, EvidenceView, EvidencePageView,
@@ -355,5 +360,5 @@ Roughly the order these become necessary, which is also roughly the safest order
 Step 7 is the one that must not be deferred. Everything before it is a table, and a table isn't the
 product.
 
-Step 4 is the one most likely to be underestimated. `ApplyToAllControl` looks like a button and is
+Step 4 is the one most likely to be underestimated. `UpdateOthersControl` looks like a button and is
 actually the difference between correcting one schema and correcting forty.

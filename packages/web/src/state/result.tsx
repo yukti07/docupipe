@@ -8,15 +8,22 @@ import { usePoll, type PollState } from "@/lib/polling"
 import { useAsync } from "@/lib/useAsync"
 
 /**
- * The result cadence, pinned for now: nothing for the first two minutes,
- * because a batch that has just been queued has nothing to report yet, then
- * every 5 s for ten minutes. A paused batch keeps its own slower beat.
+ * The result cadence, pinned for now: one poll immediately, then nothing for
+ * two minutes, then every 5 s for ten minutes. A paused batch keeps its own
+ * slower beat.
  *
- * On fixtures there is no worker to wait for, and two minutes of spinner is
- * two minutes of a screen that cannot be looked at. The cadence is the only
- * thing that changes; every state the screen can reach is still reachable.
+ * The first poll is immediate because the server can already answer it —
+ * `pollResult` builds its entries from the schemas and calls anything without
+ * a result row QUEUED, so a request queued one second ago comes back as the
+ * whole table list, every row waiting. That is a screen. What follows it is
+ * not: the worker has minutes of work before any of those stages change, and
+ * asking through that only produces a run of identical answers.
+ *
+ * On fixtures there is no worker to wait for, so there is nothing to settle.
+ * The cadence is the only thing that changes; every state the screen can reach
+ * is still reachable.
  */
-export const RESULT_FIRST_POLL_MS = FIXTURES ? 0 : 120_000
+export const RESULT_SETTLE_MS = FIXTURES ? 0 : 120_000
 export const RESULT_POLL_MS = FIXTURES ? 1500 : 5000
 export const RESULT_POLL_MAX = 120
 export const PAUSED_POLL_MS = 30_000
@@ -26,12 +33,15 @@ export function useResultPolling(
   userId: string | null,
   options: {
     enabled?: boolean
-    /** 0 for a batch this browser did not just convert — see the Converting screen. */
-    initialDelayMs?: number
+    /**
+     * What is left of the settle window, read fresh on every response. 0 for a
+     * batch this browser did not just convert — see the Converting screen.
+     */
+    settleMs?: number
     onData?: (data: ResultPollResponse) => void
   } = {},
 ): PollState<ResultPollResponse> {
-  const { enabled = true, initialDelayMs, onData } = options
+  const { enabled = true, settleMs = 0, onData } = options
 
   return usePoll<ResultPollResponse>(
     useCallback(
@@ -42,8 +52,11 @@ export function useResultPolling(
       enabled: Boolean(userId) && enabled,
       stopWhen: (data) => data.status === "COMPLETED" || data.status === "FAILED",
       maxPolls: RESULT_POLL_MAX,
-      initialDelayMs,
-      intervalFor: (data) => (data?.status === "PAUSED" ? PAUSED_POLL_MS : RESULT_POLL_MS),
+      // The settle window sits between the first poll and the second, never in
+      // front of the first — once it has run out it is shorter than the steady
+      // beat and stops counting for anything.
+      intervalFor: (data) =>
+        data?.status === "PAUSED" ? PAUSED_POLL_MS : Math.max(settleMs, RESULT_POLL_MS),
       onData: (data) => {
         // The header meter is on every screen, but the figure only arrives here.
         writeAllowance(data.allowance)

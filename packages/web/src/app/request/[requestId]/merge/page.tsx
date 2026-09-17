@@ -13,7 +13,7 @@ import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
 
-export default function MergePage({ params }: PageProps<"/b/[requestId]/merge">) {
+export default function MergePage({ params }: PageProps<"/request/[requestId]/merge">) {
   const { requestId } = use(params)
   const [userId, setUserId] = useState<string | null>(null)
   const [merged, setMerged] = useState<Extract<MergeResult, { ok: true }> | null>(null)
@@ -36,7 +36,7 @@ export default function MergePage({ params }: PageProps<"/b/[requestId]/merge">)
       <AppHeader userId={userId}>
         <div className="min-w-0">
           <p className="truncate text-[12px] text-muted-foreground">
-            <Link href={`/b/${requestId}`} className="hover:underline">
+            <Link href={`/request/${requestId}`} className="hover:underline">
               Back to the batch
             </Link>
           </p>
@@ -50,7 +50,7 @@ export default function MergePage({ params }: PageProps<"/b/[requestId]/merge">)
             title="Couldn't list the finished tables"
             body="Nothing has been combined, and nothing is lost."
             onRetry={reload}
-            backHref={`/b/${requestId}`}
+            backHref={`/request/${requestId}`}
           />
         )}
 
@@ -63,9 +63,24 @@ export default function MergePage({ params }: PageProps<"/b/[requestId]/merge">)
               {formatCount(merged.rowCount)} rows from {formatCount(merged.tableCount)} tables, in
               one table.
             </p>
-            <Button asChild className="h-9 rounded-[10px]">
-              <Link href={`/b/${requestId}/t/${merged.mergeId}`}>Open the merged table</Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild className="h-9 rounded-[10px]">
+                <Link href={`/request/${requestId}/table/${merged.mergeId}`}>Open the merged table</Link>
+              </Button>
+              {/* A batch with several shapes has several merges in it. Leaving
+                  this screen and coming back was the only way to reach the
+                  second one. */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setMerged(null)
+                  reload()
+                }}
+                className="h-9 rounded-[10px] bg-card"
+              >
+                Combine more tables
+              </Button>
+            </div>
           </div>
         ) : (
           groups && (

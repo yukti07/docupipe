@@ -8,13 +8,14 @@ import { formatCount } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
- * One shape, and every table that has it. An incompatible group stays visible
- * with its fields and a plain reason — hiding it would leave the user guessing
- * why a table they can see is not in the list.
+ * One shape, and every table that has it. A group that cannot be ticked stays
+ * visible with its fields and a plain reason — hiding it would leave the user
+ * guessing why a table they can see is not in the list.
  */
 export function MergeGroupCard({
   group,
   selected,
+  closedReason,
   onToggleGroup,
   onToggleMember,
   conflict,
@@ -22,6 +23,8 @@ export function MergeGroupCard({
 }: {
   group: MergeGroup
   selected: string[]
+  /** Why this group takes no ticks right now. Printed, and it disables the boxes. */
+  closedReason?: string
   onToggleGroup: (schemaIds: string[], next: boolean) => void
   onToggleMember: (schemaId: string, next: boolean) => void
   /** Rendered here, on the card that is the problem. */
@@ -33,6 +36,7 @@ export function MergeGroupCard({
   const all = chosen.length === ids.length && ids.length > 0
   const some = chosen.length > 0 && !all
   const rows = group.members.reduce((sum, m) => sum + m.rowCount, 0)
+  const closed = Boolean(closedReason)
 
   return (
     <section
@@ -46,12 +50,13 @@ export function MergeGroupCard({
         <Checkbox
           // A dash, not a tick, when only part of the group is picked.
           checked={all ? true : some ? "indeterminate" : false}
+          disabled={closed}
           onCheckedChange={(next) => onToggleGroup(ids, next !== true ? false : true)}
           aria-label={`Select all ${group.members.length} tables with the ${group.name} shape`}
           className="mt-0.5"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium">
+          <p className={cn("text-[13px] font-medium", closed && "text-muted-foreground")}>
             {formatCount(group.members.length)}{" "}
             {group.members.length === 1 ? "table" : "tables"} · {group.name}
           </p>
@@ -61,6 +66,11 @@ export function MergeGroupCard({
           <p className="mt-0.5 text-[11.5px] tabular-nums text-subtle-foreground">
             {formatCount(rows)} rows in total
           </p>
+          {/* Not an error — this group is simply not part of the combination
+              being built, and the card says which one it is instead. */}
+          {closedReason && (
+            <p className="mt-1.5 text-[11.5px] text-muted-foreground">{closedReason}</p>
+          )}
         </div>
       </div>
 
@@ -69,9 +79,15 @@ export function MergeGroupCard({
       <ul className="mt-3 flex flex-col gap-1">
         {group.members.map((member) => (
           <li key={member.schemaId}>
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-muted">
+            <label
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-1.5 py-1",
+                closed ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted",
+              )}
+            >
               <Checkbox
                 checked={selected.includes(member.schemaId)}
+                disabled={closed}
                 onCheckedChange={(next) => onToggleMember(member.schemaId, next === true)}
                 aria-label={`${member.fileName} · ${member.tableLabel}`}
               />

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react"
-import { ApiError, api } from "@/lib/api"
+import { api, toFailure } from "@/lib/api"
 import type {
   Failure,
   SchemaEntry,
@@ -292,6 +292,8 @@ export type UseBatch = BatchState & {
   uploadedCount: number
   acceptedCount: number
   schemaPollFailure: Failure | null
+  /** A first schema poll has come back — good or bad. Before it, nothing is known. */
+  schemasAnswered: boolean
   /** The poll ran out its budget with shapes still missing. */
   schemasStalled: boolean
   /** Uploads that did not land and still hold their bytes, so they can go again. */
@@ -361,9 +363,10 @@ export function useBatch(
     receivedRef.current = received
   }, [received])
 
-  const uploadedCount = state.files.filter(
-    (f) => f.stage === "uploaded" || f.fileId !== undefined,
-  ).length
+  // Landed, not merely signed: getSignedUrl hands back a fileId while the bytes
+  // are still moving, so counting on the id would call a file uploaded before
+  // any of it had been.
+  const uploadedCount = state.files.filter((f) => f.stage === "uploaded").length
   const acceptedCount = state.files.filter((f) => f.stage !== "rejected").length
   // A fileId only exists once getSignedUrl has answered, which is the moment
   // the server has a row for this request and these files. Before that there is
@@ -521,10 +524,7 @@ export function useBatch(
         dispatch({ type: "schema-saved", schemaIds, fields, versions })
         return { ok: true }
       } catch (error) {
-        return {
-          ok: false,
-          failure: error instanceof ApiError ? error.failure : { class: "unknown" },
-        }
+        return { ok: false, failure: toFailure(error) }
       }
     },
     [requestId, state.schemas, userId],
@@ -536,10 +536,7 @@ export function useBatch(
       await api.convert(userId, requestId)
       return { ok: true }
     } catch (error) {
-      return {
-        ok: false,
-        failure: error instanceof ApiError ? error.failure : { class: "unknown" },
-      }
+      return { ok: false, failure: toFailure(error) }
     }
   }, [requestId, userId])
 
@@ -549,6 +546,7 @@ export function useBatch(
     uploadedCount,
     acceptedCount,
     schemaPollFailure: poll.failure,
+    schemasAnswered: poll.settled,
     // Out of polls with shapes still missing: the screen says so and lets the
     // batch go anyway, rather than spinning on a promise it cannot keep.
     schemasStalled: poll.exhausted && !allShapesIn,
@@ -585,10 +583,7 @@ async function runUpload(
     )
     signedFiles = response.files
   } catch (error) {
-    dispatch({
-      type: "signing-failed",
-      failure: error instanceof ApiError ? error.failure : { class: "unknown" },
-    })
+    dispatch({ type: "signing-failed", failure: toFailure(error) })
     setUploading(false)
     return
   }
@@ -710,7 +705,7 @@ async function confirm(
     // attempt in hand, and a row that flickers through failed and back is a
     // worse account of what happened than one that waits a moment.
     if (options.quiet) return false
-    const failure = error instanceof ApiError ? error.failure : { class: "unknown" as const }
+    const failure = toFailure(error)
     dispatch({
       type: "upload-confirmed",
       entries: landed.map((file) => ({ fileId: byLocalId[file.localId].fileId, failure })),

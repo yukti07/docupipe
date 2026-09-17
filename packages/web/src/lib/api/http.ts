@@ -34,6 +34,11 @@ function classOf(value: unknown): FailureClass {
   return typeof value === "string" && KNOWN.has(value) ? (value as FailureClass) : "unknown"
 }
 
+/** What every `catch (error)` around a call into this module reduces to. */
+export function toFailure(error: unknown): Failure {
+  return error instanceof ApiError ? error.failure : { class: "unknown" }
+}
+
 /**
  * Recovering from a lost session cookie.
  *

@@ -61,7 +61,7 @@ async function dropFiles(page: Page, files: Upload[]): Promise<string> {
   await expect(chooser).toBeEnabled()
   await chooser.setInputFiles(files)
 
-  await expect(page).toHaveURL(/\/b\/req_/)
+  await expect(page).toHaveURL(/\/request\/req_/)
   return new URL(page.url()).pathname.split("/")[2]
 }
 
@@ -127,7 +127,7 @@ test.describe("the spine, for real", () => {
 
     // A REAL schema id, written by the worker and carried all the way into the
     // URL. That is the part this test can prove.
-    await expect(page).toHaveURL(/\/t\/sch_/)
+    await expect(page).toHaveURL(/\/table\/sch_/)
 
     // The rows come from the in-app fixture — there is no rows endpoint yet
     // (§0.9) — so the counts here are the fixture's, not the placeholder

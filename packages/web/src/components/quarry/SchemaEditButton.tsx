@@ -1,30 +1,30 @@
 "use client"
 
-import { Eye } from "lucide-react"
+import { Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatCount } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-/** What this file's schema is doing, which is the only thing the eye can mean. */
-export type SchemaEyeState = "uploading" | "loading" | "stalled" | "ready" | "none"
+/** What this file's schema is doing, which is the only thing this button can mean. */
+export type SchemaEditState = "uploading" | "loading" | "stalled" | "ready" | "none"
 
 /**
- * One eye per file, never one per table — a file that held ten tables is still
- * one file, and opening it opens all ten in the panel.
+ * One button per file, never one per table — a file that held ten tables is
+ * still one file, and opening it opens all ten in the panel.
  *
  * The button fills while its schema is being read: an indeterminate ease that
  * stops short of full, so the fill completing means the schema actually landed
  * rather than a timer running out. It stays filled afterwards.
  */
-export function SchemaEyeButton({
+export function SchemaEditButton({
   state,
   tableCount = 0,
   noShapeReason,
   onOpen,
   className,
 }: {
-  state: SchemaEyeState
+  state: SchemaEditState
   tableCount?: number
   /** Why there is nothing to open — the row's own reason, not a guess. */
   noShapeReason?: string
@@ -91,7 +91,7 @@ export function SchemaEyeButton({
                 </span>
               </span>
             )}
-            <Eye
+            <Pencil
               aria-hidden
               className={cn(
                 "relative size-4",
@@ -138,7 +138,7 @@ function Wave({ lower, className }: { lower?: boolean; className?: string }) {
   )
 }
 
-function tooltipFor(state: SchemaEyeState, tableCount: number, noShapeReason?: string): string {
+function tooltipFor(state: SchemaEditState, tableCount: number, noShapeReason?: string): string {
   switch (state) {
     case "uploading":
       return "Still uploading"

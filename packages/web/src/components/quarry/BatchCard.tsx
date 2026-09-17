@@ -11,7 +11,7 @@ export function BatchCard({ batch, className }: { batch: WorkspaceBatch; classNa
 
   return (
     <Link
-      href={`/b/${batch.requestId}`}
+      href={`/request/${batch.requestId}`}
       className={cn(
         "flex items-center gap-4 rounded-xl border border-border-subtle bg-card px-5 py-4 transition-colors hover:border-border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         className,

@@ -1,6 +1,6 @@
 "use client"
 
-import { Search } from "lucide-react"
+import { ChevronLeft, Search } from "lucide-react"
 import Link from "next/link"
 import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { ErrorState } from "@/components/common/ErrorState"
@@ -15,6 +15,7 @@ import { DownloadTableButton } from "@/components/quarry/DownloadTableButton"
 import { EvidencePanel } from "@/components/quarry/EvidencePanel"
 import { MarkedCellNav } from "@/components/quarry/MarkedCellNav"
 import { RawTextView } from "@/components/quarry/RawTextView"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api } from "@/lib/api"
@@ -22,8 +23,14 @@ import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
 
-export default function TablePage({ params }: PageProps<"/b/[requestId]/t/[schemaId]">) {
+export default function TablePage({
+  params,
+  searchParams,
+}: PageProps<"/request/[requestId]/table/[schemaId]">) {
   const { requestId, schemaId } = use(params)
+  // The batch screen's per-row Download links straight here with ?download=1,
+  // because the rows it would write are the ones this screen has to fetch.
+  const wanted = use(searchParams).download === "1"
   const [userId, setUserId] = useState<string | null>(null)
 
   const [view, setView] = useState<"table" | "raw">("table")
@@ -59,16 +66,9 @@ export default function TablePage({ params }: PageProps<"/b/[requestId]/t/[schem
   return (
     <>
       <AppHeader userId={userId}>
-        <div className="min-w-0">
-          <p className="truncate text-[12px] text-muted-foreground">
-            <Link href={`/b/${requestId}`} className="hover:underline">
-              Back to the batch
-            </Link>
-          </p>
-          <p className="truncate font-mono text-[13px] font-medium">
-            {table?.fileName ?? "Loading the table"}
-          </p>
-        </div>
+        <p className="min-w-0 truncate font-mono text-[13px] font-medium">
+          {table?.fileName ?? "Loading the table"}
+        </p>
       </AppHeader>
 
       <SplitPane
@@ -87,21 +87,13 @@ export default function TablePage({ params }: PageProps<"/b/[requestId]/t/[schem
         }
         list={
           <div className="flex w-full flex-col gap-4 px-6 py-5">
-            {failure && (
-              <ErrorState
-                title="Couldn't open this table"
-                body="The batch is still there. This one table didn't come back."
-                onRetry={reload}
-                backHref={`/b/${requestId}`}
-              />
-            )}
-
-            {!table && !failure && <LoadingState label="Loading this table" />}
-
-            {table && (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
+            {/* The counts arrive with the table; the way out is here from the
+                first frame, because a screen you cannot leave while it loads
+                is the one you most want to leave. */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {table && (
+                  <>
                     <p className="text-[13px] tabular-nums text-subtle-foreground">
                       {formatCount(table.rows.length)} rows · {formatCount(table.fields.length)}{" "}
                       fields
@@ -117,10 +109,37 @@ export default function TablePage({ params }: PageProps<"/b/[requestId]/t/[schem
                         {formatCount(failedRows)} {failedRows === 1 ? "row" : "rows"} failed
                       </StatusBadge>
                     )}
-                  </div>
-                  <DownloadTableButton table={table} />
-                </div>
+                  </>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-9 gap-1.5 rounded-[10px] bg-card text-[13px]"
+                >
+                  <Link href={`/request/${requestId}`}>
+                    <ChevronLeft aria-hidden className="size-4" />
+                    Back to the batch
+                  </Link>
+                </Button>
+                {table && <DownloadTableButton table={table} auto={wanted} />}
+              </div>
+            </div>
 
+            {failure && (
+              <ErrorState
+                title="Couldn't open this table"
+                body="The batch is still there. This one table didn't come back."
+                onRetry={reload}
+                backHref={`/request/${requestId}`}
+              />
+            )}
+
+            {!table && !failure && <LoadingState label="Loading this table" />}
+
+            {table && (
+              <>
                 <Tabs value={view} onValueChange={(next) => setView(next as "table" | "raw")}>
                   <TabsList>
                     <TabsTrigger value="table">Table</TabsTrigger>

@@ -71,6 +71,6 @@ describe("BatchCard", () => {
 
   it("links through to the batch", () => {
     render(<BatchCard batch={base} />)
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/b/req_01KABC")
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/request/req_01KABC")
   })
 })

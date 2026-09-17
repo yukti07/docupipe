@@ -8,19 +8,16 @@ function Probe({
   stopWhen,
   intervalFor,
   maxPolls,
-  initialDelayMs,
 }: {
   poll: (signal: AbortSignal) => Promise<string>
   stopWhen?: (data: string) => boolean
   intervalFor?: (data: string | null, elapsed: number) => number
   maxPolls?: number
-  initialDelayMs?: number
 }) {
   const { data, failure, settled, exhausted } = usePoll(poll, {
     stopWhen,
     intervalFor,
     maxPolls,
-    initialDelayMs,
   })
   return (
     <div>
@@ -83,19 +80,22 @@ describe("usePoll", () => {
     expect(poll).toHaveBeenCalledOnce()
   })
 
-  it("holds the first poll for as long as it was told to", async () => {
+  it("asks straight away, and holds the *next* one for as long as it is told", async () => {
     vi.useFakeTimers()
     const poll = vi.fn().mockResolvedValue("first")
-    render(<Probe poll={poll} initialDelayMs={120_000} />)
+    // A long gap between polls never delays the first: a freshly queued batch
+    // has a full table list to show before any of it has been worked on.
+    render(<Probe poll={poll} intervalFor={() => 120_000} />)
     await flush()
 
-    // Nothing at all for two minutes — not even the first one.
+    expect(poll).toHaveBeenCalledOnce()
+    expect(screen.getByTestId("settled")).toHaveTextContent("true")
+
     await tick(119_000)
-    expect(poll).not.toHaveBeenCalled()
-    expect(screen.getByTestId("settled")).toHaveTextContent("false")
+    expect(poll).toHaveBeenCalledOnce()
 
     await tick(1_000)
-    expect(poll).toHaveBeenCalledOnce()
+    expect(poll).toHaveBeenCalledTimes(2)
   })
 
   it("gives up on a budget of polls, and says it gave up", async () => {

@@ -1,6 +1,7 @@
 "use client"
 
 import { Loader2 } from "lucide-react"
+import Link from "next/link"
 import { GatedButton } from "@/components/common/GatedButton"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { Failure } from "@/lib/api/types"
@@ -33,7 +34,7 @@ export function ConvertBar({
   failure,
   progress,
   stalled,
-  onReviewSchemas,
+  reviewHref,
   onConvert,
   className,
 }: {
@@ -47,11 +48,19 @@ export function ConvertBar({
   progress?: PrepareProgress
   /** The schema poll spent its budget with shapes still missing. */
   stalled?: boolean
-  onReviewSchemas: () => void
+  /** The review screen. A real href, so the route is prefetched before it is pressed. */
+  reviewHref: string
   onConvert: () => void
   className?: string
 }) {
-  const reviewReason = readySchemaCount === 0 ? "No schemas ready yet" : null
+  // Review is a route change, and leaving Prepare mid-upload abandons the rows
+  // still going up — their bytes only live in this screen's state, and coming
+  // back rebuilds the list from what the server has already confirmed.
+  const reviewReason = progress?.uploading
+    ? "Wait for the uploads to finish"
+    : readySchemaCount === 0
+      ? "No schemas ready yet"
+      : null
   // No local override: the server's gate is arrival, not inspection, so it is
   // already open while shapes are still coming back.
   const convertReason = converting
@@ -116,14 +125,17 @@ export function ConvertBar({
           )}
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* A link rather than a push: Next prefetches it while it sits in
+                the footer, so pressing it does not begin by fetching the
+                screen it is meant to open. */}
             <GatedButton
+              asChild={reviewReason ? undefined : true}
               variant="outline"
               reason={reviewReason}
               hideReason
-              onClick={onReviewSchemas}
               className="bg-card"
             >
-              Review schemas
+              {reviewReason ? "Review Schemas" : <Link href={reviewHref}>Review Schemas</Link>}
             </GatedButton>
             <GatedButton reason={convertReason} hideReason onClick={onConvert}>
               {converting

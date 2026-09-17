@@ -36,27 +36,20 @@ export type SchemaState = {
   schemaId: string
   tableLabel: string
   version: number
-  /** What the document said. Apply-to-all matches on this, never on `current`. */
+  /** What the document said, so an edited field can say what it used to be. */
   original: SchemaField[]
   current: SchemaField[]
 }
 
-export const isEdited = (schema: SchemaState) =>
-  shapeHash(schema.original) !== shapeHash(schema.current)
-
 /**
- * The files whose ORIGINAL shape matched this one's ORIGINAL shape.
- *
- * Matching on the current shape would make the result depend on what you had
- * already edited, so applying the same edit in a different order would hit a
- * different set of files.
+ * Someone has changed this schema — in this browser just now, or before it ever
+ * loaded. The second half matters: `original` is only what the server held when
+ * this screen first read it, so after a reload or a move to another screen an
+ * edit made earlier looks like the shape the document came with. The version
+ * counter is the server's own record and survives both.
  */
-export function applyToAllTargets(all: SchemaState[], source: SchemaState): SchemaState[] {
-  const hash = shapeHash(source.original)
-  return all.filter(
-    (schema) => schema.schemaId !== source.schemaId && shapeHash(schema.original) === hash,
-  )
-}
+export const isEdited = (schema: SchemaState) =>
+  schema.version > 1 || shapeHash(schema.original) !== shapeHash(schema.current)
 
 /** The one edit that is not a type change. */
 export function validateNewField(
@@ -99,16 +92,79 @@ export function addField(fields: SchemaField[], name: string, type: FieldType): 
   return [...fields, { key: check.key, label: name.trim(), type, origin: "added" }]
 }
 
-/** Schemas grouped by identical original shape, biggest group first. */
-export function groupByOriginalShape(
-  schemas: SchemaState[],
-): { shapeHash: string; schemas: SchemaState[] }[] {
+/**
+ * What has happened to a schema, which is what the review screen puts on every
+ * card. Generated is the shape the document was read as, modified is one a
+ * person has saved over it, unsaved is one being edited right now.
+ *
+ * The draft is not in `SchemaState` — it lives in whichever editor is open — so
+ * that third state is passed in rather than derived.
+ */
+export type SchemaStatus = "generated" | "modified" | "unsaved"
+
+export const schemaStatus = (schemas: SchemaState[], unsaved = false): SchemaStatus =>
+  unsaved ? "unsaved" : schemas.some(isEdited) ? "modified" : "generated"
+
+/** Tables that share one shape, held together so they can be edited as one. */
+export type SchemaGroup = { shapeHash: string; schemas: SchemaState[] }
+
+/**
+ * Schemas grouped by the shape they have *now*.
+ *
+ * This is what the review screen groups on, and it is deliberately not the
+ * original: a table whose type was already changed from its own file's row no
+ * longer matches the ones it started beside, so it leaves that group and gets a
+ * card of its own. The card then means what it says — every table with this
+ * schema — rather than every table that once had it.
+ */
+export const groupByCurrentShape = (schemas: SchemaState[]): SchemaGroup[] =>
+  groupBy(schemas, (schema) => shapeHash(schema.current))
+
+function groupBy(schemas: SchemaState[], hashOf: (schema: SchemaState) => string): SchemaGroup[] {
   const groups = new Map<string, SchemaState[]>()
   for (const schema of schemas) {
-    const hash = shapeHash(schema.original)
+    const hash = hashOf(schema)
     groups.set(hash, [...(groups.get(hash) ?? []), schema])
   }
   return [...groups.entries()]
     .map(([hash, members]) => ({ shapeHash: hash, schemas: members }))
     .sort((a, b) => b.schemas.length - a.schemas.length)
+}
+
+/**
+ * One other table this schema can be written onto, and how far it is from it.
+ *
+ * `added` is the fields this write would bring that the table does not have —
+ * they arrive empty. A table that holds a field this schema does not is never a
+ * target at all: writing this shape over it would take that field away, and
+ * removing a field is not one of the two edits this product has.
+ */
+export type UpdateTarget = {
+  schema: SchemaState
+  added: string[]
+}
+
+/**
+ * The tables this one can be pushed onto: the ones carrying exactly its field
+ * names, and the ones short of exactly one of them.
+ *
+ * Matching is on names alone. A type that disagrees is the whole reason the
+ * push exists, so it cannot also be what rules a table out.
+ */
+export function updateTargetsFor(all: SchemaState[], source: SchemaState): UpdateTarget[] {
+  const keys = source.current.map((f) => f.key)
+  const wanted = new Set(keys)
+
+  return all
+    .filter((schema) => schema.schemaId !== source.schemaId)
+    .flatMap<UpdateTarget>((schema) => {
+      const theirs = new Set(schema.current.map((f) => f.key))
+      if ([...theirs].some((key) => !wanted.has(key))) return []
+      const added = keys.filter((key) => !theirs.has(key))
+      return added.length > 1 ? [] : [{ schema, added }]
+    })
+    .sort(
+      (a, b) =>
+        a.added.length - b.added.length || a.schema.fileName.localeCompare(b.schema.fileName),
+    )
 }

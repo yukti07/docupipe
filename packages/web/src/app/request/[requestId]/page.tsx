@@ -18,20 +18,19 @@ import { FileRow, type FileRowState } from "@/components/quarry/FileRow"
 import { FileSchemaPanel } from "@/components/quarry/FileSchemaPanel"
 import { PausedBanner } from "@/components/quarry/PausedBanner"
 import { PipelineStrip } from "@/components/quarry/PipelineStrip"
-import { SchemaGroupList } from "@/components/quarry/SchemaGroupList"
-import { SchemaEyeButton, type SchemaEyeState } from "@/components/quarry/SchemaEyeButton"
+import { SchemaEditButton, type SchemaEditState } from "@/components/quarry/SchemaEditButton"
 import { StatusSentence } from "@/components/quarry/StatusSentence"
 import { TableList } from "@/components/quarry/TableList"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
-import { applyToAllTargets, type SchemaState } from "@/lib/schema"
+import { updateTargetsFor, type SchemaState } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch, type BatchFile } from "@/state/batch"
 import { forgetFiles } from "@/state/batchFiles"
 import {
-  RESULT_FIRST_POLL_MS,
+  RESULT_SETTLE_MS,
   useConversionProbe,
   useResultPolling,
 } from "@/state/result"
@@ -46,7 +45,7 @@ const UPLOAD_STAGE: Record<BatchFile["stage"], FileRowState> = {
   failed: "failed",
 }
 
-export default function BatchPage({ params }: PageProps<"/b/[requestId]">) {
+export default function BatchPage({ params }: PageProps<"/request/[requestId]">) {
   const { requestId } = use(params)
   const [userId, setUserId] = useState<string | null>(null)
   const { batches, updateBatch } = useWorkspace()
@@ -111,14 +110,11 @@ function Prepare({
   const { removeBatch } = useWorkspace()
   // Keyed by file, never by table: one row opens one panel, whatever it holds.
   const [openFileId, setOpenFileId] = useState<string | null>(null)
-  const [showAllSchemas, setShowAllSchemas] = useState(false)
   const [converting, setConverting] = useState(false)
   const [convertFailure, setConvertFailure] = useState<Failure | null>(null)
 
   const openFile = batch.files.find((f) => f.fileId && f.fileId === openFileId) ?? null
   const openSchemas = batch.schemas.filter((s) => s.fileId === openFileId)
-  const uploadDone = batch.files.length > 0 && !batch.uploading
-  const showSchemas = showAllSchemas || (uploadDone && batch.schemas.length > 0)
 
   async function convert() {
     setConverting(true)
@@ -174,7 +170,7 @@ function Prepare({
             <FileSchemaPanel
               fileName={openFile?.name ?? openSchemas[0].fileName}
               schemas={openSchemas}
-              applyTargetsFor={(schema) => applyToAllTargets(batch.schemas, schema)}
+              targetsFor={(schema) => updateTargetsFor(batch.schemas, schema)}
               onClose={() => setOpenFileId(null)}
               onSave={(schemaId, fields, alsoApplyTo) =>
                 batch.saveSchema(schemaId, fields, alsoApplyTo)
@@ -232,7 +228,7 @@ function Prepare({
                     }
                     detail={shapeDetail(file, batch.schemas)}
                     trailing={
-                      <FileEye
+                      <FileEditButton
                         file={file}
                         schemas={batch.schemas}
                         wontConvert={batch.wontConvert}
@@ -243,19 +239,6 @@ function Prepare({
                   />
                 ))}
               </FileList>
-            )}
-
-            {showSchemas && batch.schemas.length > 0 && (
-              <section>
-                <h2 className="mb-3 text-[13px] font-medium text-subtle-foreground">
-                  {formatCount(batch.schemas.length)} schemas back
-                </h2>
-                <SchemaGroupList
-                  schemas={batch.schemas}
-                  openFileId={openFileId}
-                  onOpen={(schema: SchemaState) => setOpenFileId(schema.fileId)}
-                />
-              </section>
             )}
 
             <WontConvertPanel entries={batch.wontConvert} />
@@ -271,44 +254,52 @@ function Prepare({
         failure={convertFailure}
         progress={progress}
         stalled={batch.schemasStalled}
-        onReviewSchemas={() => setShowAllSchemas(true)}
+        // Every schema in the batch, grouped, on a screen of its own — the
+        // footer button is the eye button widened to the whole drop.
+        reviewHref={`/request/${requestId}/schemas`}
         onConvert={convert}
       />
     </>
   )
 }
 
-/** The row says what the upload is doing. The eye says what the schema is doing. */
+/** The row says what the upload is doing. The button says what the schema is doing. */
 const rowState = (file: BatchFile): FileRowState => UPLOAD_STAGE[file.stage]
 
-/** What this file's schema is doing, which is the only thing the eye can mean. */
-function eyeState(
+/** What this file's schema is doing, which is the only thing the button can mean. */
+function editState(
   file: BatchFile,
   schemas: SchemaState[],
   wontConvert: { fileId: string }[],
   stalled?: boolean,
-): SchemaEyeState {
+): SchemaEditState {
   if (file.fileId && schemas.some((s) => s.fileId === file.fileId)) return "ready"
   if (file.stage !== "uploaded") return "uploading"
   if (file.fileId && wontConvert.some((w) => w.fileId === file.fileId)) return "none"
   return stalled ? "stalled" : "loading"
 }
 
-/** What the row says under its name once its shape is known. */
+/**
+ * Every table this file gave up, each with its own field count, on the row the
+ * file already has — the cards that used to sit under the list said the same
+ * thing twice, in more space.
+ *
+ * Counted table by table rather than summed: field lists differ between the
+ * tables in one file, so a total would be a number nothing actually has.
+ */
 function shapeDetail(file: BatchFile, schemas: SchemaState[]): string | undefined {
   const mine = schemas.filter((s) => s.fileId === file.fileId)
   if (mine.length === 0) return undefined
-  // Field lists differ table by table, so a file with several is counted, not
-  // summed. Row counts are not known until the file is actually converted.
-  if (mine.length > 1) return `${formatCount(mine.length)} tables`
-  return `${formatCount(mine[0].current.length)} fields`
+  return mine
+    .map((s) => `${s.tableLabel} · ${formatCount(s.current.length)} fields`)
+    .join(" · ")
 }
 
 /**
- * One eye per row. A file that did not upload has Retry instead and no eye at
- * all — a dead control beside a live one only crowds the live one out.
+ * One button per row. A file that did not upload has Retry instead and no
+ * button at all — a dead control beside a live one only crowds the live one out.
  */
-function FileEye({
+function FileEditButton({
   file,
   schemas,
   wontConvert,
@@ -327,20 +318,24 @@ function FileEye({
   const mine = schemas.filter((s) => s.fileId === file.fileId)
 
   return (
-    <SchemaEyeButton
-      state={eyeState(file, schemas, wontConvert, stalled)}
+    <SchemaEditButton
+      state={editState(file, schemas, wontConvert, stalled)}
       tableCount={mine.length}
       onOpen={() => file.fileId && onOpen(file.fileId)}
     />
   )
 }
 
-/** What is left of the two minutes, for a batch this browser converted itself. */
+/**
+ * What is left of the two minutes, for a batch this browser converted itself.
+ * It holds the *second* poll, not the first — the first has real counts to
+ * fetch the moment Convert is pressed.
+ */
 function remainingWait(convertedAt?: string): number {
   if (!convertedAt) return 0
   const since = Date.now() - Date.parse(convertedAt)
   if (Number.isNaN(since)) return 0
-  return Math.max(0, RESULT_FIRST_POLL_MS - since)
+  return Math.max(0, RESULT_SETTLE_MS - since)
 }
 
 /** The whole drop as one number, by bytes, so one big file cannot stall the bar. */
@@ -372,12 +367,10 @@ function Converting({
   convertedAt?: string
   onPhase: PhaseWriter
 }) {
-  // Read once, at mount: this is a deadline, not a countdown, and recomputing
-  // it every render would restart the poll on every render.
-  const [firstPollDelay] = useState(() => remainingWait(convertedAt))
-
   const poll = useResultPolling(requestId, userId, {
-    initialDelayMs: firstPollDelay,
+    // Recomputed on every render, so the gap after each poll is what is
+    // actually left of the window rather than a figure fixed at mount.
+    settleMs: remainingWait(convertedAt),
     onData: (data) => {
       const toCheck = data.files.reduce((sum, f) => sum + (f.toCheckCount ?? 0), 0)
       onPhase(requestId, {
@@ -481,7 +474,7 @@ function Converting({
                       className="h-8 rounded-lg bg-card text-[12.5px]"
                     >
                       {finished && result.counts.done > 1 ? (
-                        <Link href={`/b/${requestId}/merge`}>Merge</Link>
+                        <Link href={`/request/${requestId}/merge`}>Merge</Link>
                       ) : (
                         "Merge"
                       )}

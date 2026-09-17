@@ -71,7 +71,7 @@ describe("S01 workspace", () => {
 
     await waitFor(() => expect(push).toHaveBeenCalled())
     const href = push.mock.calls.at(-1)?.[0] as string
-    expect(href).toMatch(/^\/b\/req_/)
+    expect(href).toMatch(/^\/request\/req_/)
     const requestId = href.split("/").at(-1)!
     expect(peekStagedFiles(requestId)).toHaveLength(1)
   })

@@ -143,6 +143,12 @@ export const FAILURES: Record<FailureClass, FailureCopy> = {
     tone: "error",
     blocksConvert: false,
   },
+  not_implemented: {
+    message: "This part isn't wired to the backend yet.",
+    nextStep: "Run `npm run fixtures:on` to see it with sample data instead.",
+    tone: "error",
+    blocksConvert: false,
+  },
   network: {
     message: "Couldn't reach the server.",
     nextStep: "Check your connection — we'll keep trying.",

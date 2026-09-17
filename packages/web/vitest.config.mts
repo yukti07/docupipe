@@ -16,6 +16,10 @@ export default defineConfig({
     },
   },
   test: {
+    // The five surfaces with no route yet have no other implementation to test
+    // against, so the suite runs with the fixture fallback on. The seven live
+    // routes stay live here and are exercised through MSW.
+    env: { NEXT_PUBLIC_FIXTURE_FALLBACK: "1" },
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],

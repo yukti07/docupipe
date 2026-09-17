@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "dev:fixtures": "node scripts/dev-fixtures.mjs",
+    "fixtures": "node scripts/use-fixtures.mjs",
+    "fixtures:on": "node scripts/use-fixtures.mjs on",
+    "fixtures:off": "node scripts/use-fixtures.mjs off",
+    "fixtures:mixed": "node scripts/use-fixtures.mjs mixed",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

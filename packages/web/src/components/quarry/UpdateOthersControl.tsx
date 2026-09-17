@@ -1,0 +1,167 @@
+"use client"
+
+import { ArrowRight, ChevronDown, ChevronUp, ListChecks } from "lucide-react"
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { formatCount } from "@/lib/format"
+import type { UpdateTarget } from "@/lib/schema"
+import { cn } from "@/lib/utils"
+
+/**
+ * Pushing this schema past the table on screen — the one control here that
+ * reaches files nobody is looking at, so it never fires straight from the
+ * button. Opening it offers the two ways of meaning it: pick the tables by
+ * hand, or take the lot.
+ *
+ * It stays shut while there is an unsaved edit. Writing a draft onto other
+ * files would spread a shape the person has not committed to even here.
+ */
+export function UpdateOthersControl({
+  targets,
+  onSelect,
+  onUpdateAll,
+  updating,
+  disabled,
+  className,
+}: {
+  targets: UpdateTarget[]
+  /** Open the picker. */
+  onSelect: () => void
+  /** Write onto every target at once. */
+  onUpdateAll: () => void
+  updating?: boolean
+  disabled?: boolean
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  // "Update all" writes onto every target with one more click than "Select
+  // tables" needs — this is that click. It replaces the menu's two choices
+  // with the list of files it is about to reach, the same thing the picker
+  // shows before "Select tables" ever writes anything.
+  const [confirming, setConfirming] = useState(false)
+
+  const count = formatCount(targets.length)
+  const differing = targets.filter((t) => t.added.length > 0).length
+
+  if (targets.length === 0) {
+    return (
+      <p className={cn("text-[12px] text-muted-foreground", className)}>
+        No other table has these fields.
+      </p>
+    )
+  }
+
+  const label = "Update matching tables"
+
+  function onOpenChange(next: boolean) {
+    setOpen(next)
+    if (!next) setConfirming(false)
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          disabled={disabled || updating}
+          aria-label={disabled ? `${label} — save your change first` : undefined}
+          className={cn("h-9 justify-between gap-1.5 rounded-[10px] bg-card text-[12.5px]", className)}
+        >
+          {updating ? `Updating ${count} ${targets.length === 1 ? "table" : "tables"}…` : label}
+          {open ? (
+            <ChevronUp aria-hidden className="size-3.5 opacity-60" />
+          ) : (
+            <ChevronDown aria-hidden className="size-3.5 opacity-60" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent side="top" align="start" className="w-[330px] rounded-xl p-1.5">
+        {confirming ? (
+          <div className="flex flex-col gap-2 p-1">
+            <p className="px-1.5 pt-1 text-[12.5px] font-medium">
+              Write onto all {count} matching {targets.length === 1 ? "table" : "tables"}?
+            </p>
+            <ScrollArea className="max-h-40">
+              <ul className="flex flex-col gap-1 px-1.5">
+                {targets.map((target) => (
+                  <li
+                    key={target.schema.schemaId}
+                    className="truncate font-mono text-[11.5px] text-subtle-foreground"
+                  >
+                    {target.schema.fileName}
+                    {target.schema.tableLabel ? ` · ${target.schema.tableLabel}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+            <div className="flex items-center gap-2 px-1 pt-1">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setOpen(false)
+                  setConfirming(false)
+                  onUpdateAll()
+                }}
+                className="h-8 rounded-lg text-[12.5px]"
+              >
+                Update {count} {targets.length === 1 ? "table" : "tables"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(false)}
+                className="h-8 rounded-lg text-[12.5px]"
+              >
+                Back
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <DropdownMenuItem
+              onSelect={onSelect}
+              className="items-start gap-2.5 rounded-lg px-2.5 py-2.5 focus:bg-primary-tint"
+            >
+              <ListChecks aria-hidden className="mt-0.5 size-4 text-primary" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-[13px] font-medium">Select tables</span>
+                <span className="text-[12px] text-muted-foreground">
+                  Choose which of the {count} matching tables take this schema.
+                </span>
+              </span>
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              onSelect={(event) => {
+                // Stays open — the next click needs the list this prevents
+                // Radix from closing on.
+                event.preventDefault()
+                setConfirming(true)
+              }}
+              className="items-start gap-2.5 rounded-lg px-2.5 py-2.5"
+            >
+              <ArrowRight aria-hidden className="mt-0.5 size-4" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-[13px] font-medium">Update all matching tables</span>
+                {/* The near-matches are the part worth knowing before taking the
+                    lot — they are the ones that gain a field they never had. */}
+                <span className="text-[12px] text-muted-foreground">
+                  All {count} at once.
+                  {differing > 0 && ` ${formatCount(differing)} of them differ by a field.`}
+                </span>
+              </span>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}

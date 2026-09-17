@@ -340,9 +340,11 @@ describe("the prepare screen", () => {
 
     await user.click(within(panel).getByRole("combobox", { name: "Type of total" }))
     await user.click(screen.getByRole("option", { name: "currency" }))
-    await user.click(within(panel).getByRole("button", { name: "Apply to 1 file" }))
-    await user.click(screen.getByRole("button", { name: "Include these 1" }))
     await user.click(within(panel).getByRole("button", { name: "Save" }))
+    await user.click(await within(panel).findByRole("button", { name: "Update matching tables" }))
+    // The menu portals out of the panel, so it is found on the screen.
+    await user.click(screen.getByRole("menuitem", { name: /Update all matching tables/ }))
+    await user.click(screen.getByRole("button", { name: "Update 1 table" }))
 
     await waitFor(() => expect(saved).not.toBeNull())
     expect(saved!.files).toHaveLength(2)
@@ -404,7 +406,7 @@ describe("the prepare screen", () => {
     expect(screen.queryByRole("button", { name: /Open schema|Loading schema/ })).not.toBeInTheDocument()
   })
 
-  it("gives a many-table file one eye, and opens every table behind it", async () => {
+  it("gives a many-table file one button, and names every table on its row", async () => {
     mockBackend({
       entries: [
         schemaEntry({ schemaId: "sch_1", schema: { ...schemaEntry().schema!, tableLabel: "table 1" } }),
@@ -415,12 +417,17 @@ describe("the prepare screen", () => {
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     const { user } = await renderBatch()
 
-    const eye = await screen.findByRole("button", { name: "Open 3 tables" })
-    // One row, one eye — never one button per table.
+    const edit = await screen.findByRole("button", { name: "Open 3 tables" })
+    // One row, one button — never one per table.
     expect(screen.getAllByRole("button", { name: /Open 3 tables/ })).toHaveLength(1)
-    expect(await screen.findByText(/· 3 tables/)).toBeVisible()
+    // Each table named on the row, with its own field count.
+    expect(
+      await screen.findByText(
+        /table 1 · \d+ fields · table 2 · \d+ fields · table 3 · \d+ fields/,
+      ),
+    ).toBeVisible()
 
-    await user.click(eye)
+    await user.click(edit)
     const panel = screen.getByRole("complementary", { name: "Schema" })
     expect(within(panel).getAllByRole("tab")).toHaveLength(3)
     expect(within(panel).getByRole("tab", { name: "table 3" })).toBeVisible()
@@ -474,18 +481,40 @@ describe("the prepare screen", () => {
     expect(seen.results).toBe(0)
   })
 
-  it("waits out the two minutes before asking how a batch it just converted is doing", async () => {
-    const seen = mockBackend()
+  it("asks once the moment it converts, then waits out the two minutes", async () => {
+    const seen = mockBackend({
+      // What the server answers for a request queued a second ago: every table
+      // listed, none of them started. `pollResult` reads them off the schemas,
+      // so it can say this before the worker has touched anything.
+      result: {
+        userId: "usr_1",
+        requestId: REQUEST,
+        status: "CONVERTING",
+        pausedUntil: null,
+        counts: { queued: 2, extracting: 0, filling: 0, done: 0, failed: 0 },
+        rowsSoFar: 0,
+        estimatedSecondsRemaining: null,
+        allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
+        files: [
+          { fileId: "file_1", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+          { fileId: "file_2", fileName: "invoice-1044.pdf", schemaId: "sch_32", stage: "QUEUED" },
+        ],
+      },
+    })
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     const { user } = await renderBatch("prepare")
 
     await user.click(await screen.findByRole("button", { name: /^Convert/ }))
     await waitFor(() => expect(seen.converts).toBe(1))
 
-    // The probe is skipped for a batch this browser staged, and the result
-    // poll is holding: nothing has asked the server how it is going.
-    await waitFor(() => expect(screen.getByText("Converting")).toBeVisible())
-    expect(seen.results).toBe(0)
+    // A screen with the batch on it, not two minutes of a spinner.
+    expect(await screen.findByText(/0 of 2 done/)).toBeVisible()
+    expect(screen.getByText("invoice-1043.pdf")).toBeVisible()
+    expect(screen.getByText("invoice-1044.pdf")).toBeVisible()
+
+    // And then it holds: the worker has minutes of work before any of those
+    // stages change, and one poll has already said everything there is to say.
+    expect(seen.results).toBe(1)
   })
 
   it("asks straight away about a batch it did not convert itself", async () => {

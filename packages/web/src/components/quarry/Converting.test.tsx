@@ -127,7 +127,7 @@ describe("TableList", () => {
     )
     expect(screen.getByRole("link", { name: /View/ })).toHaveAttribute(
       "href",
-      "/b/req_1/t/sch_31",
+      "/request/req_1/table/sch_31",
     )
     expect(screen.getByRole("link", { name: /Download/ })).toBeVisible()
     expect(screen.getByText("22 rows · 6 fields · 3 to check")).toBeVisible()
@@ -201,7 +201,7 @@ describe("ConvertBar", () => {
           inFlight: 0,
           fraction: 1,
         }}
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )
@@ -228,7 +228,7 @@ describe("ConvertBar", () => {
           inFlight: 1,
           fraction: 0.4,
         }}
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )
@@ -242,7 +242,7 @@ describe("ConvertBar", () => {
         readySchemaCount={34}
         convertAvailable={false}
         convertBlockedReason="7 files are still reading their shape."
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )
@@ -254,28 +254,61 @@ describe("ConvertBar", () => {
     ).toBeDisabled()
   })
 
-  it("opens Review schemas as soon as any one shape is ready", () => {
+  it("opens Review Schemas as soon as any one shape is ready", () => {
     const { rerender } = render(
       <ConvertBar
         readySchemaCount={0}
         convertAvailable={false}
         convertBlockedReason="Nothing uploaded yet."
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )
-    expect(screen.getByRole("button", { name: /Review schemas/ })).toBeDisabled()
+    // Nothing to review: a dead button, not a link to an empty screen.
+    expect(screen.getByRole("button", { name: /Review Schemas/ })).toBeDisabled()
+    expect(screen.queryByRole("link", { name: /Review Schemas/ })).not.toBeInTheDocument()
 
     rerender(
       <ConvertBar
         readySchemaCount={1}
         convertAvailable={false}
         convertBlockedReason="Nothing uploaded yet."
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )
-    expect(screen.getByRole("button", { name: "Review schemas" })).toBeEnabled()
+    // A real link, so the route is prefetched rather than fetched on the press.
+    expect(screen.getByRole("link", { name: "Review Schemas" })).toHaveAttribute(
+      "href",
+      "/request/req_test/schemas",
+    )
+  })
+
+  it("holds Review Schemas shut while bytes are still going up", () => {
+    // Review is a route change, and the rows still uploading live only in the
+    // screen it would leave — coming back rebuilds the list without them.
+    render(
+      <ConvertBar
+        readySchemaCount={1}
+        convertAvailable={false}
+        convertBlockedReason="Nothing uploaded yet."
+        progress={{
+          uploaded: 1,
+          total: 3,
+          schemas: 1,
+          withoutShape: 0,
+          uploading: true,
+          inFlight: 2,
+          fraction: 0.4,
+        }}
+        reviewHref="/request/req_test/schemas"
+        onConvert={vi.fn()}
+      />,
+    )
+    expect(
+      screen.getByRole("button", { name: /Review Schemas.*Wait for the uploads to finish/ }),
+    ).toBeDisabled()
+    expect(screen.queryByRole("link", { name: /Review Schemas/ })).not.toBeInTheDocument()
   })
 
   it("converts when the gate is met, and carries the count", async () => {
@@ -285,7 +318,7 @@ describe("ConvertBar", () => {
         readySchemaCount={41}
         convertAvailable
         convertBlockedReason={null}
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={onConvert}
       />,
     )
@@ -300,7 +333,7 @@ describe("ConvertBar", () => {
         convertAvailable={false}
         convertBlockedReason="7 files are still reading their shape."
         failure={{ class: "gate_not_met", message: "7 files are still reading their shape." }}
-        onReviewSchemas={vi.fn()}
+        reviewHref="/request/req_test/schemas"
         onConvert={vi.fn()}
       />,
     )

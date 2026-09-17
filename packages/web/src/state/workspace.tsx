@@ -32,6 +32,48 @@ export type WorkspaceBatch = {
 
 const KEY = "quarry.workspace"
 
+/** Where a list waits while another identity is using this browser. */
+const parked = (userId: string) => `${KEY}.${userId}`
+
+/** Which parked ids exist, oldest-touched first — kept so eviction knows what to drop. */
+const PARKED_ORDER_KEY = `${KEY}.parked-order`
+
+/**
+ * How many other identities' lists this browser keeps parked before forgetting
+ * the oldest. Without a cap, a browser that opens many distinct `?w=` links —
+ * every shared link is its own id — parks one more JSON blob forever, growing
+ * toward the storage quota with nothing to ever reclaim it.
+ */
+const MAX_PARKED = 20
+
+function parkedOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(PARKED_ORDER_KEY)
+    const value: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []
+  } catch {
+    return []
+  }
+}
+
+/** Marks `id` as the most recently parked, evicting the oldest past MAX_PARKED. */
+function touchParked(id: string) {
+  const order = [...parkedOrder().filter((existing) => existing !== id), id]
+  while (order.length > MAX_PARKED) {
+    const oldest = order.shift()
+    if (oldest) localStorage.removeItem(parked(oldest))
+  }
+  localStorage.setItem(PARKED_ORDER_KEY, JSON.stringify(order))
+}
+
+/** `id`'s list is live again, not parked — it drops out of the eviction order. */
+function dropParked(id: string) {
+  localStorage.setItem(
+    PARKED_ORDER_KEY,
+    JSON.stringify(parkedOrder().filter((existing) => existing !== id)),
+  )
+}
+
 type WorkspaceValue = {
   batches: WorkspaceBatch[]
   /** False until the browser-held list has been read, so the page can say it is loading. */
@@ -101,6 +143,41 @@ function parse(raw: string | null): WorkspaceBatch[] {
 
 const newestFirst = (batches: WorkspaceBatch[]) =>
   [...batches].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+/**
+ * This browser changed hands — `?w=` adopted another identity, and the cards in
+ * the list were made by the one before it.
+ *
+ * The outgoing list is parked under its own id rather than dropped, so the
+ * `?w=` link back to that id brings exactly the same cards with it, and a list
+ * parked under the incoming id is restored. Without this the new identity
+ * inherits cards for requests the server holds no rows of, and every one of
+ * them opens onto nothing.
+ */
+export function switchWorkspace(from: string | null, to: string) {
+  // A list with no id behind it yet belongs to the first id this browser is
+  // given, so there is nothing to move.
+  if (!from || from === to) return
+  try {
+    const live = localStorage.getItem(KEY)
+    if (live) {
+      localStorage.setItem(parked(from), live)
+      touchParked(from)
+    }
+
+    const theirs = localStorage.getItem(parked(to))
+    if (theirs) {
+      localStorage.setItem(KEY, theirs)
+      localStorage.removeItem(parked(to))
+      dropParked(to)
+    } else {
+      localStorage.removeItem(KEY)
+    }
+  } catch {
+    // A blocked store costs the swap, not the session in front of you.
+  }
+  announce()
+}
 
 export function readWorkspace(): WorkspaceBatch[] {
   let raw: string | null = null

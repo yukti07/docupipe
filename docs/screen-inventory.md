@@ -80,7 +80,12 @@ Staged  →  Checking  →  Uploading  →  Uploaded  →  Reading shape  →  S
                                                    Couldn't read it
 ```
 
-The row carries: filename · size · progress bar · state · retry · **Preview / Edit** button.
+The row carries: filename · size · **every table it gave up, each with its own field count**
+(*"222 B · table 1 · 6 fields · table 2 · 7 fields"*) · progress bar · state · retry ·
+**Preview / Edit** button.
+
+**There is no separate list of schema cards under the rows.** The row already names what came back;
+a second card per file beneath it said the same thing again, in more space.
 
 **The Preview / Edit button** is present from the moment the row appears and **disabled until that
 file's shape is ready**. A visible disabled button beats an empty space, because it tells you
@@ -121,9 +126,11 @@ two ways, and it is the same component both times.
 - **All-files view** — every ready schema, grouped so identical ones sit together with a count
 - **Editing a field's type** — the type control open
 - **Adding a field** — name and type, inline
-- **Apply-to-all offered** — shown only when other files originally matched this shape, with the
-  count: *"12 other files started with this shape"*
-- **Apply-to-all confirming** — the affected files listed by name before you commit
+- **Update matching tables gated** — there is an unsaved edit, so the wide write is shut and says why
+- **Update matching tables offered** — this table is committed, and the menu carries the count:
+  *"Choose which of the 12 matching tables take this schema"*
+- **Choosing the tables** — the panel's second page: every match listed, grouped into the ones with
+  exactly these fields and the ones short of one, each named with the field it would gain
 - **Invalid** — a new field with an empty name, or a name that collides with an existing one.
   Blocks saving, says why
 - **Saving**
@@ -270,16 +277,29 @@ for; it never happens on its own.
 - **Picker** — every finished table, grouped so identical shapes sit together with a count:
   *"31 tables · Invoice No, Date, Total"*
 - **Nothing selected** — merge disabled, saying what to do
-- **A compatible set selected** — merge enabled, with the resulting row count
-- **An incompatible set selected** — merge blocked, with an error naming **which table, which
-  field, and what disagrees**: *"`Invoice No` is text in 12 tables and number in 3"*
+- **One table selected** — merge disabled, saying to pick another
+- **A shape is active** — two or more picked, merge enabled with the resulting row count. **Every
+  other shape on the page is closed**, each card saying which selection closed it
+- **A shape that cannot be combined at all** — one table with that shape, so its card is closed
+  from the start: *"Nothing else in this batch has these fields"*
 - **Merging**
-- **Merged** — opens the merged table (S06 with a source-file column)
+- **Merged** — opens the merged table (S06 with a source-file column), and offers the picker back,
+  because a batch with several shapes has several merges in it
+- **Merge refused by the server** — the conflict named on the offending card: **which table, which
+  field, and what disagrees** (*"`Invoice No` is text in 12 tables and number in 3"*), selection
+  preserved
 - **Merge failed** — a real message, selection preserved
 - **Only one table in the batch** — merge is off, and says there's nothing to combine
+- **No two tables share a shape** — merge is off, and says that rather than showing a page of cards
+  that all refuse to be ticked
 
 **The check is exact:** same field names, same field types, order-independent. No widening, no
 subsetting, no coercion.
+
+**The screen enforces the check rather than reporting it.** A selection can only ever be inside one
+shape, so an incompatible set is not something the user can build and then be refused for. The
+server's own refusal is still handled — it is the last word — but reaching it should mean the data
+changed underneath, not that the screen offered a combination it knew it would reject.
 
 ---
 
@@ -400,11 +420,15 @@ S04   Waiting · Running · Done (View + Download) · Failed · Paused
 Detected · Type changed · Added by you · Invalid
 ```
 
-**A schema card** — on S03's all-files view and S09's picker
+**A schema card** — on S03's all-files view
 
 ```
-Ready · Edited · Shared with N other files · Failed to read
+Generated · Modified · Unsaved changes · Shared with N other files · Failed to read
 ```
+
+Generated is the shape the document was read as, Modified is one a person has saved over it, and
+Unsaved changes is one being edited in the panel right now. On the review screen the card also
+carries whether it is the one open — by its own border, never by the wording of its button.
 
 **A batch card** — on S01
 

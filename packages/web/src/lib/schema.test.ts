@@ -3,11 +3,11 @@ import type { SchemaField } from "@/lib/api/types"
 import * as schema from "./schema"
 import {
   addField,
-  applyToAllTargets,
   changeFieldType,
-  groupByOriginalShape,
+  groupByCurrentShape,
   isEdited,
   shapeHash,
+  updateTargetsFor,
   validateNewField,
   type SchemaState,
 } from "./schema"
@@ -51,28 +51,64 @@ describe("shapeHash", () => {
   })
 })
 
-describe("applyToAllTargets", () => {
-  it("matches on the original shape, not the current one", () => {
+describe("updateTargetsFor", () => {
+  it("offers the tables carrying exactly these field names", () => {
     const source = state("sch_1", INVOICE, changeFieldType(INVOICE, "total", "currency"))
-    const sameOriginal = state("sch_2", INVOICE)
-    const differentOriginal = state("sch_3", [f("a", "text")])
+    const same = state("sch_2", INVOICE)
+    const unrelated = state("sch_3", [f("a", "text")])
 
-    const targets = applyToAllTargets([source, sameOriginal, differentOriginal], source)
-    expect(targets.map((t) => t.schemaId)).toEqual(["sch_2"])
+    const targets = updateTargetsFor([source, same, unrelated], source)
+    expect(targets.map((t) => t.schema.schemaId)).toEqual(["sch_2"])
+    expect(targets[0].added).toEqual([])
   })
 
-  it("is order-independent — editing two schemas in either order hits the same files", () => {
-    const a = state("sch_1", INVOICE, changeFieldType(INVOICE, "total", "currency"))
-    const b = state("sch_2", INVOICE, addField(INVOICE, "supplier", "text"))
-    const c = state("sch_3", INVOICE)
+  it("offers a table short of one field, and names the field it would gain", () => {
+    const source = state("sch_1", INVOICE)
+    const short = state("sch_2", [f("invoice_number", "text"), f("invoice_date", "date")])
 
-    expect(applyToAllTargets([a, b, c], a).map((t) => t.schemaId)).toEqual(["sch_2", "sch_3"])
-    expect(applyToAllTargets([a, b, c], b).map((t) => t.schemaId)).toEqual(["sch_1", "sch_3"])
+    const targets = updateTargetsFor([source, short], source)
+    expect(targets.map((t) => t.schema.schemaId)).toEqual(["sch_2"])
+    expect(targets[0].added).toEqual(["total"])
+  })
+
+  it("leaves out a table short of two", () => {
+    const source = state("sch_1", INVOICE)
+    const short = state("sch_2", [f("invoice_number", "text")])
+    expect(updateTargetsFor([source, short], source)).toEqual([])
+  })
+
+  it("leaves out a table holding a field this schema does not — that write would drop it", () => {
+    const source = state("sch_1", INVOICE)
+    const wider = state("sch_2", addField(INVOICE, "supplier", "text"))
+    expect(updateTargetsFor([source, wider], source)).toEqual([])
+  })
+
+  it("matches on the fields as they are now, which is what the push would write", () => {
+    // sch_2 was read with two fields and has since gained the third by hand,
+    // so it is an exact match today whatever its document said.
+    const source = state("sch_1", INVOICE)
+    const grown = state(
+      "sch_2",
+      [f("invoice_number", "text"), f("invoice_date", "date")],
+      INVOICE,
+    )
+    expect(updateTargetsFor([source, grown], source)[0].added).toEqual([])
+  })
+
+  it("puts the exact matches first", () => {
+    const source = state("sch_1", INVOICE)
+    const short = state("sch_2", [f("invoice_number", "text"), f("invoice_date", "date")])
+    const exact = state("sch_3", INVOICE)
+
+    expect(updateTargetsFor([source, short, exact], source).map((t) => t.schema.schemaId)).toEqual([
+      "sch_3",
+      "sch_2",
+    ])
   })
 
   it("never includes the schema you are editing", () => {
     const source = state("sch_1", INVOICE)
-    expect(applyToAllTargets([source], source)).toEqual([])
+    expect(updateTargetsFor([source], source)).toEqual([])
   })
 })
 
@@ -122,16 +158,28 @@ describe("isEdited", () => {
       true,
     )
   })
+
+  it("still says so after a reload, when the edit is only in the version", () => {
+    // What comes back from the server on a fresh screen: the saved fields as
+    // both the original and the current shape, and a version past its first.
+    const saved = changeFieldType(INVOICE, "total", "currency")
+    expect(isEdited({ ...state("sch_1", saved), version: 2 })).toBe(true)
+  })
 })
 
-describe("groupByOriginalShape", () => {
-  it("puts identical original shapes together, biggest group first", () => {
-    const groups = groupByOriginalShape([
+describe("groupByCurrentShape", () => {
+  it("puts identical shapes together, biggest group first", () => {
+    const groups = groupByCurrentShape([
       state("sch_1", INVOICE),
       state("sch_2", [f("a", "text")]),
       state("sch_3", INVOICE),
     ])
     expect(groups[0].schemas.map((s) => s.schemaId)).toEqual(["sch_1", "sch_3"])
     expect(groups[1].schemas.map((s) => s.schemaId)).toEqual(["sch_2"])
+  })
+
+  it("groups on the shape a table has now, not the one it came with", () => {
+    const edited = state("sch_2", INVOICE, changeFieldType(INVOICE, "total", "currency"))
+    expect(groupByCurrentShape([state("sch_1", INVOICE), edited])).toHaveLength(2)
   })
 })

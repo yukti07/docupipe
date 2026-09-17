@@ -65,8 +65,10 @@ output is the marked cells, which show their reason inline in the table.
 1. **Exactly two schema edits exist: change a field's type, and add a field.** No rename, no delete,
    no description. The schema describes what is in the document; renaming would make the table
    disagree with its own source. Don't render greyed-out rename/delete controls either.
-2. **Apply-to-all matches on the *original* inferred schema**, not the current one — same field
-   names and types, order-independent.
+2. **Update matching tables matches on field *names*, as they are now.** Same names, or short of
+   exactly one of them, which arrives empty. A table holding a field this schema does not have is
+   never offered — that write would take the field away, and removing a field is not one of the
+   two edits.
 3. **Convert enables when every file has uploaded *and* settled its schema** (ready **or** failed).
    A file whose schema couldn't be read is carried as a failure, not a blocker.
 4. **Merge is exact and explicit.** Same field names, same types. Never automatic, never widening,
@@ -85,7 +87,7 @@ output is the marked cells, which show their reason inline in the table.
 - **Preview / Edit per file** — button disabled until that file's schema is ready
 - **Two edit operations only** — change a field's type, add a field
 - **Review schemas** — all schemas at once, enabled as soon as any one is ready
-- **Apply to all** — propagate onto files whose original schema matched exactly, listed before it commits
+- **Update matching tables** — push a saved schema onto the matching tables, all at once or a chosen few
 - **Convert** — the one gate; freezes schemas
 - Honest live processing status — done / waiting / to check / failed, in one sentence
 - **Each file's table opens the moment that file finishes.** No waiting for the batch

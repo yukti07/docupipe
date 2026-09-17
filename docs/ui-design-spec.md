@@ -187,7 +187,7 @@ scale.
 
 **S02 + S03 — one Prepare screen, two phases**
 
-S02 and S03 are a single route, `/b/[requestId]`. While files are going up it is a file table;
+S02 and S03 are a single route, `/request/[requestId]`. While files are going up it is a file table;
 once shapes land it is a list of schema cards, with the editor in a 460px panel beside it. The
 panel is 460px on Prepare and 440px on the table screen — the schema editor holds a form, the
 evidence panel holds a page.
@@ -284,7 +284,7 @@ A spinner with no words is a refusal to say what's happening.
 
 **Modal** — for destructive confirmation and Download all only. Never for evidence, never for the
 schema editor, never for the merge picker, never for anything you need to see the list behind.
-**Merge is a full page** (`/b/[requestId]/merge`), because the picker has to show every finished
+**Merge is a full page** (`/request/[requestId]/merge`), because the picker has to show every finished
 table with its fields and a conflict can land on any card.
 
 **Toast** — transient confirmations only ("Schema saved to 12 files"). **Never used for errors**,

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@/test/render"
+import { api } from "@/lib/api"
 import type { ResultPollResponse, TableData } from "@/lib/api/types"
 import { ConnectionStatus } from "./ConnectionStatus"
 import { DownloadAllDialog } from "./DownloadAllDialog"
@@ -112,6 +113,23 @@ describe("DownloadAllDialog", () => {
     await user.click(screen.getByRole("button", { name: "Download" }))
     await waitFor(() => expect(downloads.clicked).toHaveLength(2))
     expect(downloads.clicked.every((d) => d.name.endsWith(".csv"))).toBe(true)
+    downloads.restore()
+  })
+
+  it("keeps the tables that came back when one of them does not", async () => {
+    const downloads = captureDownloads()
+    const real = api.getTable
+    vi.spyOn(api, "getTable").mockImplementation((requestId, schemaId) =>
+      schemaId === "sch_31" ? Promise.reject(new Error("gone")) : real(requestId, schemaId),
+    )
+    const { user } = render(<DownloadAllDialog requestId="req_1" result={result()} />)
+    await user.click(screen.getByRole("button", { name: /Download all/ }))
+    await user.click(screen.getByRole("button", { name: "Download" }))
+
+    // One table refusing is a reason to be short a file, not a reason to get none.
+    await waitFor(() => expect(downloads.clicked).toHaveLength(1))
+    expect(screen.getByText(/1 of 2 tables downloaded/)).toBeVisible()
+    vi.restoreAllMocks()
     downloads.restore()
   })
 

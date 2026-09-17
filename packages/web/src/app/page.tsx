@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useEffectEvent, useState } from "react"
 import { EmptyState } from "@/components/common/EmptyState"
@@ -8,11 +9,10 @@ import { LoadingState } from "@/components/common/LoadingState"
 import { AppHeader } from "@/components/quarry/AppHeader"
 import { BatchCard } from "@/components/quarry/BatchCard"
 import { DropZone } from "@/components/quarry/DropZone"
-import { FailureMessage } from "@/components/quarry/FailureMessage"
-import { ApiError } from "@/lib/api"
+import { toFailure } from "@/lib/api"
 import type { Failure } from "@/lib/api/types"
 import { stageFiles } from "@/lib/preflight"
-import { ensureSession, newRequestId } from "@/lib/session"
+import { ensureSession, getPreviousUserId, newRequestId } from "@/lib/session"
 import { stageForRequest } from "@/state/staged"
 import { useWorkspace } from "@/state/workspace"
 
@@ -38,7 +38,6 @@ function Workspace() {
   const { batches, loaded } = useWorkspace()
   const workspace = useWorkspace()
 
-  const [dropFailure, setDropFailure] = useState<Failure | null>(null)
   const [attempt, setAttempt] = useState(0)
   // One piece of state, written only from the async callbacks, and read back
   // only when it belongs to the attempt being shown. Pressing Try again clears
@@ -47,6 +46,8 @@ function Workspace() {
   const [session, setSession] = useState<{
     attempt: number
     userId?: string
+    /** The id a `?w=` link replaced, read after the swap has been made. */
+    previousId?: string | null
     failure?: Failure
   } | null>(null)
 
@@ -61,15 +62,12 @@ function Workspace() {
     ensureSession(adopt)
       .then((id) => {
         if (!live) return
-        setSession({ attempt, userId: id })
+        setSession({ attempt, userId: id, previousId: getPreviousUserId() })
         if (adopt) adopted()
       })
       .catch((error: unknown) => {
         if (!live) return
-        setSession({
-          attempt,
-          failure: error instanceof ApiError ? error.failure : { class: "unknown" },
-        })
+        setSession({ attempt, failure: toFailure(error) })
       })
     return () => {
       live = false
@@ -79,17 +77,12 @@ function Workspace() {
   const current = session?.attempt === attempt ? session : null
   const userId = current?.userId ?? null
   const sessionFailure = current?.failure ?? null
+  const previousId = current?.previousId ?? null
 
   function onFiles(files: File[]) {
-    setDropFailure(null)
-    if (!userId) {
-      setDropFailure({
-        class: "network",
-        message: "Your workspace hasn't finished waking up.",
-        nextStep: "Give it a moment and drop the files again.",
-      })
-      return
-    }
+    // The zone is inert without a session, so this cannot fire early. The guard
+    // keeps that true if the zone's own gating ever changes.
+    if (!userId) return
 
     const staged = stageFiles(files)
     const requestId = newRequestId()
@@ -102,7 +95,7 @@ function Workspace() {
       phase: "prepare",
       summary: {},
     })
-    router.push(`/b/${requestId}`)
+    router.push(`/request/${requestId}`)
   }
 
   if (sessionFailure) {
@@ -132,7 +125,20 @@ function Workspace() {
           onFiles={onFiles}
           disabledReason={userId ? null : "Waking up your workspace — one moment."}
         />
-        {dropFailure && <FailureMessage failure={dropFailure} className="mt-3" />}
+
+        {/* Adopting a shared link swaps this browser's identity, and the
+            batches that came with the old one went with it. */}
+        {previousId && previousId !== userId && (
+          <p className="mt-3 text-[12.5px] text-muted-foreground">
+            This browser was in another workspace before this one.{" "}
+            <Link
+              href={`/?w=${previousId}`}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Switch back to it
+            </Link>
+          </p>
+        )}
 
         <section className="mt-10">
           <div className="flex items-center gap-2">

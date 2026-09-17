@@ -178,9 +178,9 @@ packages/web/src/
   app/
     layout.tsx                              modify — providers, canvas background
     page.tsx                                S01 Workspace
-    b/[requestId]/page.tsx                  Prepare | Converting, by batch phase
-    b/[requestId]/t/[schemaId]/page.tsx     S06 table + evidence + raw text
-    b/[requestId]/merge/page.tsx            S09 merge
+    request/[requestId]/page.tsx                  Prepare | Converting, by batch phase
+    request/[requestId]/table/[schemaId]/page.tsx S06 table + evidence + raw text
+    request/[requestId]/merge/page.tsx            S09 merge
     not-found.tsx                           S14
     error.tsx                               S15
   components/

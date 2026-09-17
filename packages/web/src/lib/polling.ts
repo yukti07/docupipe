@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useEffectEvent, useState } from "react"
-import { ApiError } from "@/lib/api"
+import { toFailure } from "@/lib/api"
 import type { Failure } from "@/lib/api/types"
 
 /** §0.4 and §0.7: every 2 s, backing off to 5 s after a minute of waiting. */
@@ -31,11 +31,13 @@ type PollOptions<T> = {
   /** A budget, so a server that never settles cannot poll forever. */
   maxPolls?: number
   /**
-   * Hold off the FIRST poll this long. For work that is known to take minutes,
-   * asking straight away only produces a run of answers nobody needed.
+   * Overrides the standard cadence — the 30 s a PAUSED batch uses, and the
+   * long first gap a freshly queued one takes.
+   *
+   * Called after each response, so a caller that returns what is left of a
+   * deadline gets the current remainder every time rather than a figure fixed
+   * when the loop was set up.
    */
-  initialDelayMs?: number
-  /** Overrides the standard cadence, for the 30 s a PAUSED batch uses. */
   intervalFor?: (data: T | null, elapsedMs: number) => number
   onData?: (data: T) => void
 }
@@ -50,13 +52,15 @@ export function usePoll<T>(
   poll: (signal: AbortSignal) => Promise<T>,
   options: PollOptions<T> = {},
 ): PollState<T> {
-  const { enabled = true, stopWhen, maxPolls, initialDelayMs, intervalFor, onData } = options
+  const { enabled = true, stopWhen, maxPolls, intervalFor, onData } = options
 
   const [data, setData] = useState<T | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
-  const [settled, setSettled] = useState(false)
-  // Which attempt ran out of budget, and which one stopped, so a refresh clears
-  // both without a synchronous reset on the way into the effect.
+  // Which attempt got a first response, which ran out of budget, and which one
+  // stopped, so a refresh clears all three without a synchronous reset on the
+  // way into the effect — a raw boolean here would stay true across a refresh,
+  // since nothing but a new response would ever flip it back.
+  const [settledAt, setSettledAt] = useState<number | null>(null)
   const [exhaustedAt, setExhaustedAt] = useState<number | null>(null)
   const [stoppedAt, setStoppedAt] = useState<number | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -94,7 +98,7 @@ export function usePoll<T>(
         latest = next
         setData(next)
         setFailure(null)
-        setSettled(true)
+        setSettledAt(attempt)
         emit(next)
         if (shouldStop(next)) {
           setStoppedAt(attempt)
@@ -103,8 +107,8 @@ export function usePoll<T>(
       } catch (error) {
         if (!live || controller.signal.aborted) return
         // The last good response stays on screen; the failure sits beside it.
-        setFailure(error instanceof ApiError ? error.failure : { class: "unknown" })
-        setSettled(true)
+        setFailure(toFailure(error))
+        setSettledAt(attempt)
       }
       if (!live) return
       // Out of budget. The screen has to say so rather than spin on quietly.
@@ -116,25 +120,24 @@ export function usePoll<T>(
       timer = setTimeout(run, wait())
     }
 
-    if (initialDelayMs && initialDelayMs > 0) {
-      timer = setTimeout(run, initialDelayMs)
-    } else {
-      void run()
-    }
+    // Always asked straight away. Work that takes minutes still has something
+    // true to say the moment it is queued, and a caller that wants to wait
+    // before asking *again* says so through `intervalFor`.
+    void run()
 
     return () => {
       live = false
       controller.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [enabled, attempt, maxPolls, initialDelayMs])
+  }, [enabled, attempt, maxPolls])
 
   const refresh = useCallback(() => setAttempt((n) => n + 1), [])
 
   return {
     data,
     failure,
-    settled,
+    settled: settledAt === attempt,
     exhausted: exhaustedAt === attempt,
     stopped: stoppedAt === attempt,
     refresh,

@@ -64,7 +64,7 @@ export function TableList({
                   size="sm"
                   className="h-8 gap-1.5 rounded-lg text-[12.5px] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
                 >
-                  <Link href={`/b/${requestId}/t/${entry.schemaId}`}>
+                  <Link href={`/request/${requestId}/table/${entry.schemaId}`}>
                     <Table2 aria-hidden className="size-3.5" />
                     View
                   </Link>
@@ -75,7 +75,7 @@ export function TableList({
                   size="sm"
                   className="h-8 gap-1.5 rounded-lg text-[12.5px]"
                 >
-                  <Link href={`/b/${requestId}/t/${entry.schemaId}?download=1`}>
+                  <Link href={`/request/${requestId}/table/${entry.schemaId}?download=1`}>
                     <Download aria-hidden className="size-3.5" />
                     Download
                   </Link>

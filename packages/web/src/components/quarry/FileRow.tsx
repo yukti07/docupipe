@@ -34,10 +34,11 @@ const STATES: Record<
   FileRowState,
   { label: string; variant: StatusVariant; icon?: typeof AlignLeft }
 > = {
-  // Three words cover the upload: in line, going up, landed. A file being
-  // signed has not started moving, so it is still in line.
+  // Three words cover the upload: in line, going up, landed. Signing is part of
+  // going up — the file is being sent from the moment its url is asked for, and
+  // a row that reads "In line" through that round trip is describing plumbing.
   staged: { label: "In line", variant: "neutral", icon: AlignLeft },
-  checking: { label: "In line", variant: "neutral", icon: AlignLeft },
+  checking: { label: "Uploading", variant: "working" },
   rejected: { label: "Rejected", variant: "error" },
   uploading: { label: "Uploading", variant: "working" },
   failed: { label: "Upload failed", variant: "error" },

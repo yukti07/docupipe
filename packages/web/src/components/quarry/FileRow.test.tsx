@@ -7,7 +7,8 @@ import { FileRow, type FileRowState } from "./FileRow"
 describe("FileRow", () => {
   it.each([
     ["staged", "In line"],
-    ["checking", "In line"],
+    // Signing is the start of the upload, not a queue in front of it.
+    ["checking", "Uploading"],
     ["rejected", "Rejected"],
     ["uploading", "Uploading"],
     ["failed", "Upload failed"],

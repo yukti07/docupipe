@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, type ReactNode } from "react"
+import { useEffect, type CSSProperties, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 type SplitPaneProps = {
@@ -37,12 +37,16 @@ export function SplitPane({
         <aside
           role="complementary"
           aria-label={panelLabel}
-          style={{ width: panelWidth }}
+          // Carried as a custom property rather than an inline width: an inline
+          // width beats every class, so the narrow-screen sizing below could
+          // never take effect and the panel hung off the left of a phone.
+          style={{ "--panel-width": `${panelWidth}px` } as CSSProperties}
           className={cn(
             "flex min-h-0 shrink-0 flex-col overflow-auto border-l border-border-subtle bg-card",
             "motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:duration-200",
             // Below 1024px the two stop being legible side by side.
-            "max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-40 max-lg:w-full max-lg:max-w-[440px] max-lg:shadow-2xl",
+            "fixed inset-y-0 right-0 z-40 w-full max-w-[440px] shadow-2xl",
+            "lg:static lg:z-auto lg:w-[var(--panel-width)] lg:max-w-none lg:shadow-none",
           )}
         >
           {panel}
