@@ -1,9 +1,7 @@
 import "server-only"
 
-import type { StorageOptions } from "@google-cloud/storage"
-
 import { env } from "./env"
-import { gcpAuthClient } from "./gcp-auth"
+import { writeAdcCredentials } from "./gcp-auth"
 
 /**
  * Signed upload URLs and object verification.
@@ -46,15 +44,11 @@ async function bucket() {
   const { Storage } = await import("@google-cloud/storage")
   const cfg = env()
   if (!cfg.bucket) throw new Error("GCS_BUCKET_NAME is required when STORAGE_BACKEND=gcs")
-  // `undefined` leaves the client on ADC, which is what local development
-  // uses. Deployed, it is the federated credential (`gcp-auth.ts`).
-  //
-  // The cast is version skew, not a silenced error: this package resolves
-  // google-auth-library v11 while @google-cloud/storage still pins v9, whose
-  // AuthClient type declares a member v11 dropped. Storage only ever calls
-  // getCredentials / request / sign on it, and v11 has all three.
-  const authClient = (await gcpAuthClient()) as unknown as StorageOptions["authClient"]
-  return new Storage({ authClient }).bucket(cfg.bucket)
+  // Storage stays on ADC and is handed the credential as a file, because it
+  // resolves its own older copy of google-auth-library — see
+  // `writeAdcCredentials`. Locally this is a no-op and ADC means gcloud.
+  await writeAdcCredentials()
+  return new Storage().bucket(cfg.bucket)
 }
 
 async function gcsSignedUpload(key: string, contentType: string): Promise<SignedUpload> {

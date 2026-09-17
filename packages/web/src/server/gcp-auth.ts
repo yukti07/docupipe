@@ -101,7 +101,66 @@ export async function gcpAuthClient(): Promise<AuthClient | undefined> {
   return cached ?? undefined
 }
 
+/* --------------------------------------------------- the ADC file path */
+
+/**
+ * The same credential, written to disk for libraries that must build their own.
+ *
+ * `@google-cloud/storage` resolves its OWN copy of google-auth-library (v9,
+ * pinned at ^9.6.3) while this package and every other GCP client resolve v11.
+ * Handing it the client above does not work, and fails in a way worth naming:
+ * v9's `getCredentialsAsync` decides what to sign as with
+ *
+ *     if (client instanceof BaseExternalAccountClient) ...
+ *
+ * and `instanceof` compares class identity across module copies, so a v11
+ * instance fails a v9 check. It then probes the GCE metadata server and throws
+ * `Unable to find credentials in current environment` — an error that names
+ * credentials when the real problem is two copies of a library.
+ *
+ * So Storage is left on ADC and given the credential the way ADC expects it:
+ * a config file whose subject token is a second file we keep current. v9 then
+ * builds its own external-account client, its own `instanceof` matches, and
+ * signing works.
+ */
+
+let lastToken: string | null = null
+
+export async function writeAdcCredentials(): Promise<void> {
+  const config = federationConfig()
+  if (!config) return
+
+  const { getVercelOidcToken } = await import("@vercel/functions/oidc")
+  const fs = await import("node:fs/promises")
+  const path = await import("node:path")
+  const os = await import("node:os")
+
+  const token = await getVercelOidcToken()
+  if (token === lastToken) return
+
+  const tokenFile = path.join(os.tmpdir(), "vercel-oidc-token")
+  const configFile = path.join(os.tmpdir(), "gcp-external-account.json")
+
+  await fs.writeFile(tokenFile, token, "utf8")
+  await fs.writeFile(
+    configFile,
+    JSON.stringify({
+      type: "external_account",
+      audience: config.audience,
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      token_url: "https://sts.googleapis.com/v1/token",
+      service_account_impersonation_url: config.impersonationUrl,
+      credential_source: { file: tokenFile, format: { type: "text" } },
+    }),
+    "utf8",
+  )
+
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = configFile
+  lastToken = token
+}
+
 /** Tests change the environment between cases. */
 export function resetGcpAuthClient(): void {
   cached = undefined
+  lastToken = null
 }
