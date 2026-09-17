@@ -44,11 +44,16 @@ async function bucket() {
   const { Storage } = await import("@google-cloud/storage")
   const cfg = env()
   if (!cfg.bucket) throw new Error("GCS_BUCKET_NAME is required when STORAGE_BACKEND=gcs")
+  if (!cfg.projectId) throw new Error("GCP_PROJECT_ID is required when STORAGE_BACKEND=gcs")
   // Storage stays on ADC and is handed the credential as a file, because it
   // resolves its own older copy of google-auth-library — see
   // `writeAdcCredentials`. Locally this is a no-op and ADC means gcloud.
   await writeAdcCredentials()
-  return new Storage().bucket(cfg.bucket)
+  // The project is passed, never discovered — the same as the Pub/Sub client in
+  // `publish.ts`. Discovery from an external-account credential goes to the
+  // Cloud Resource Manager API and then to the GCE metadata server, and on
+  // Vercel that walk ends in an error that blames credentials.
+  return new Storage({ projectId: cfg.projectId }).bucket(cfg.bucket)
 }
 
 async function gcsSignedUpload(key: string, contentType: string): Promise<SignedUpload> {

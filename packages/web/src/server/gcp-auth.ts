@@ -3,6 +3,7 @@ import "server-only"
 import type { AuthClient } from "google-auth-library"
 
 import { env } from "./env"
+import { log } from "./handler"
 
 /**
  * The Google credential, deployed.
@@ -55,6 +56,29 @@ function federationConfig() {
       `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/` +
       `${serviceAccountEmail}:generateAccessToken`,
   }
+}
+
+/** Which of the four are absent, so a half-configured deploy says so itself. */
+function missingFederationVars(): string[] {
+  const cfg = env()
+  const required: [string, string][] = [
+    ["GCP_PROJECT_NUMBER", cfg.projectNumber],
+    ["GCP_WORKLOAD_IDENTITY_POOL_ID", cfg.workloadIdentityPoolId],
+    ["GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID", cfg.workloadIdentityProviderId],
+    ["GCP_SERVICE_ACCOUNT_EMAIL", cfg.serviceAccountEmail],
+  ]
+  return required.filter(([, value]) => !value).map(([name]) => name)
+}
+
+//: Once per warm instance. Which credential a deploy actually picked is a fact
+//: about the instance, not about the request, and every failure on this path
+//: reports itself as "credentials" whichever branch caused it.
+let announced = false
+
+function announce(source: "federation" | "adc", fields: Record<string, unknown>): void {
+  if (announced) return
+  announced = true
+  log("INFO", { event: "gcp_credentials", source, ...fields })
 }
 
 async function build(): Promise<AuthClient | null> {
@@ -128,12 +152,25 @@ let lastToken: string | null = null
 
 export async function writeAdcCredentials(): Promise<void> {
   const config = federationConfig()
-  if (!config) return
+  if (!config) {
+    announce("adc", { missing: missingFederationVars() })
+    return
+  }
 
   const { getVercelOidcToken } = await import("@vercel/functions/oidc")
   const fs = await import("node:fs/promises")
   const path = await import("node:path")
   const os = await import("node:os")
+
+  // Set before anything below can return early, and for every client that
+  // builds its own credential rather than taking one. Left to find the project
+  // itself, an external-account credential asks the Cloud Resource Manager API
+  // and then the GCE metadata server; on Vercel neither answers, and what it
+  // raises at the end of that walk is `Unable to find credentials in current
+  // environment` — which names credentials for a missing project id.
+  const { projectId } = env()
+  if (projectId) process.env.GOOGLE_CLOUD_PROJECT = projectId
+  announce("federation", { projectId: projectId || null })
 
   const token = await getVercelOidcToken()
   if (token === lastToken) return
