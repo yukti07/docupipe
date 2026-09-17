@@ -1,6 +1,7 @@
 import "server-only"
 
 import { env } from "./env"
+import { gcpAuthClient } from "./gcp-auth"
 
 /**
  * Handing a message to the worker.
@@ -24,7 +25,7 @@ async function publishToPubSub(message: Message): Promise<void> {
   const cfg = env()
   if (!cfg.projectId) throw new Error("GCP_PROJECT_ID is required to publish")
 
-  await new PubSub({ projectId: cfg.projectId })
+  await new PubSub({ projectId: cfg.projectId, authClient: await gcpAuthClient() })
     .topic(message.topic)
     .publishMessage({
       data: Buffer.from(JSON.stringify(message.payload)),

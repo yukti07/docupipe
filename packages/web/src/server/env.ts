@@ -94,6 +94,12 @@ function build() {
     // because there is no broker in `docker compose`.
     workerUrl: optional("WORKER_URL", "http://localhost:8080"),
 
+    /* google credentials, deployed. All four or none — see server/gcp-auth.ts */
+    projectNumber: optional("GCP_PROJECT_NUMBER"),
+    serviceAccountEmail: optional("GCP_SERVICE_ACCOUNT_EMAIL"),
+    workloadIdentityPoolId: optional("GCP_WORKLOAD_IDENTITY_POOL_ID"),
+    workloadIdentityProviderId: optional("GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID"),
+
     /* allowance */
     defaultDailyLimit: int("DEFAULT_DAILY_LIMIT", 5000),
   }

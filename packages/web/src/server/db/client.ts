@@ -3,6 +3,7 @@ import "server-only"
 import { Pool, type PoolClient } from "pg"
 
 import { env } from "../env"
+import { gcpAuthClient } from "../gcp-auth"
 
 /**
  * The connection pool.
@@ -44,7 +45,7 @@ async function create(): Promise<Pool> {
   // Imported lazily: constructing a connector resolves credentials, and doing
   // that at module scope fails `next build`, where there is no OIDC token.
   const { Connector, IpAddressTypes } = await import("@google-cloud/cloud-sql-connector")
-  const connector = new Connector()
+  const connector = new Connector({ auth: await gcpAuthClient() })
   const clientOpts = await connector.getOptions({
     instanceConnectionName: cfg.instanceConnectionName,
     ipType: IpAddressTypes.PUBLIC,
