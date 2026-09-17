@@ -14,6 +14,8 @@ import { ApiFailure } from "./failures"
 const USER_ID = /^[A-Za-z0-9_-]{22,64}$/
 /** Matches the CHECK constraint on requests.id. */
 const REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/
+/** `sch_` plus the worker's hex, but kept general so the id format can change. */
+const SCHEMA_ID = /^[A-Za-z0-9_-]{8,64}$/
 
 export function asObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -51,6 +53,12 @@ export function userId(body: Record<string, unknown>): string {
 
 export function requestId(body: Record<string, unknown>): string {
   return str(body, "requestId", { pattern: REQUEST_ID, label: "requestId" })
+}
+
+export function schemaId(body: Record<string, unknown>): string {
+  // Server-generated, unlike the user and request ids, so this is a shape
+  // check rather than a defence — the row it names is still scoped by owner.
+  return str(body, "schemaId", { pattern: SCHEMA_ID, label: "schemaId" })
 }
 
 export function array<T>(

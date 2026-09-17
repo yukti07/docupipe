@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { FixtureApi } from "./fixtures"
 import { api } from "./index"
 import { NotBuilt } from "./live"
 
@@ -6,7 +7,7 @@ describe("the surfaces with no route yet", () => {
   it("refuses rather than serving sample rows under a real batch", async () => {
     // What the app does without the fixture fallback, which is the default
     // everywhere except this suite.
-    await expect(NotBuilt.getTable("req_1", "sch_32")).rejects.toMatchObject({
+    await expect(NotBuilt.getRawText("req_1", "sch_32")).rejects.toMatchObject({
       failure: { class: "not_implemented" },
     })
     await expect(NotBuilt.getMergeGroups("req_1")).rejects.toMatchObject({
@@ -15,25 +16,27 @@ describe("the surfaces with no route yet", () => {
   })
 })
 
-describe("the composed api", () => {
+describe("the fixture table", () => {
   it("serves a table from the fixture set", async () => {
-    const table = await api.getTable("req_1", "sch_32")
+    const table = await FixtureApi.getTable("req_1", "sch_32")
     expect(table.fileName).toBe("invoice-1044.pdf")
     expect(table.rows).toHaveLength(22)
   })
 
   it("marks the vat cell on row 5 with its reason", async () => {
-    const table = await api.getTable("req_1", "sch_32")
+    const table = await FixtureApi.getTable("req_1", "sch_32")
     const cell = table.rows[4].values.vat
     expect(cell.state).toBe("marked")
     expect(cell.reason).toMatch(/216\.40/)
   })
 
   it("reports a whole row that could not be read", async () => {
-    const table = await api.getTable("req_1", "sch_32")
+    const table = await FixtureApi.getTable("req_1", "sch_32")
     expect(table.rows[6].failed?.message).toMatch(/cut off at the right edge/i)
   })
+})
 
+describe("the composed api", () => {
   it("returns a page locator with fractional box coordinates", async () => {
     const evidence = await api.getEvidence("val_r5_vat")
     expect(evidence.locator.type).toBe("page")

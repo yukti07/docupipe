@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest"
+import { http, HttpResponse } from "msw"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@/test/render"
+import { server } from "@/test/msw/server"
 import { api } from "@/lib/api"
 import type { ResultPollResponse, TableData } from "@/lib/api/types"
 import { ConnectionStatus } from "./ConnectionStatus"
@@ -78,6 +80,21 @@ describe("DownloadTableButton", () => {
 })
 
 describe("DownloadAllDialog", () => {
+  // The dialog fetches every finished table through `api.getTable`, which is a
+  // live route now rather than a fixture — so the route is what gets stubbed.
+  beforeEach(() => {
+    server.use(
+      http.post("/api/table", async ({ request }) => {
+        const { schemaId } = (await request.json()) as { schemaId: string }
+        return HttpResponse.json({
+          ...table,
+          schemaId,
+          fileName: schemaId === "sch_31" ? "invoice-1043.pdf" : "invoice-1044.pdf",
+        })
+      }),
+    )
+  })
+
   it("carries the row count on the button", () => {
     render(<DownloadAllDialog requestId="req_1" result={result()} />)
     expect(screen.getByRole("button", { name: /Download all · 36 rows/ })).toBeEnabled()

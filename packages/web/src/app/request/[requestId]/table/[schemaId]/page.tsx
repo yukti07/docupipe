@@ -12,8 +12,6 @@ import { AppHeader } from "@/components/quarry/AppHeader"
 import { DataTable, type DensityOption } from "@/components/quarry/DataTable"
 import { DensityToggle } from "@/components/quarry/DensityToggle"
 import { DownloadTableButton } from "@/components/quarry/DownloadTableButton"
-import { EvidencePanel } from "@/components/quarry/EvidencePanel"
-import { MarkedCellNav } from "@/components/quarry/MarkedCellNav"
 import { RawTextView } from "@/components/quarry/RawTextView"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,7 +34,6 @@ export default function TablePage({
   const [view, setView] = useState<"table" | "raw">("table")
   const [search, setSearch] = useState("")
   const [density, setDensity] = useState<DensityOption>("comfortable")
-  const [openValueId, setOpenValueId] = useState<string | null>(null)
 
   useEffect(() => {
     void ensureSession().then(setUserId)
@@ -71,20 +68,17 @@ export default function TablePage({
         </p>
       </AppHeader>
 
+      {/* The panel stays shut: the processing worker records no provenance for a
+          value — no page, no box, nothing behind it — so there is nothing for
+          Evidence to show. Cells render as plain text rather than as controls
+          that open an empty drawer. `valueId` is still carried on every cell,
+          so switching this back on is wiring, not a rewrite. */}
       <SplitPane
         className="flex-1"
         panelWidth={440}
         panelLabel="Evidence"
-        onClose={() => setOpenValueId(null)}
-        panel={
-          openValueId && table ? (
-            <EvidencePanel
-              valueId={openValueId}
-              fileName={table.fileName}
-              onClose={() => setOpenValueId(null)}
-            />
-          ) : null
-        }
+        onClose={() => {}}
+        panel={null}
         list={
           <div className="flex w-full flex-col gap-4 px-6 py-5">
             {/* The counts arrive with the table; the way out is here from the
@@ -163,12 +157,6 @@ export default function TablePage({
                           className="h-8 rounded-lg pl-8 text-[12.5px]"
                         />
                       </div>
-                      {/* Stepping through marked cells moves the panel with the selection. */}
-                      <MarkedCellNav
-                        valueIds={markedValueIds}
-                        currentValueId={openValueId}
-                        onSelect={setOpenValueId}
-                      />
                       <DensityToggle density={density} onChange={setDensity} />
                     </Toolbar>
 
@@ -178,8 +166,6 @@ export default function TablePage({
                       density={density}
                       globalFilter={search}
                       onGlobalFilterChange={setSearch}
-                      selectedValueId={openValueId}
-                      onOpenEvidence={setOpenValueId}
                     />
                   </>
                 ) : (

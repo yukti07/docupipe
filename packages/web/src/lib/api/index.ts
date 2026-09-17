@@ -10,7 +10,7 @@ import type { QuarryApi } from "./contract"
  *
  *   npm run fixtures:off      the real backend, and nothing invented
  *   npm run fixtures:on       sample data everywhere — no server at all
- *   npm run fixtures:mixed    the real backend, with sample data for the five
+ *   npm run fixtures:mixed    the real backend, with sample data for the four
  *                             surfaces that have no route yet
  *
  * Next inlines these at build time, so the flags are read once when the bundle
@@ -20,7 +20,7 @@ import type { QuarryApi } from "./contract"
 export const FIXTURES = process.env.NEXT_PUBLIC_FIXTURES === "1"
 
 /**
- * The five surfaces with no route yet serve sample data instead of refusing.
+ * The four surfaces with no route yet serve sample data instead of refusing.
  *
  * This is what the app did unconditionally before, and it is still the only way
  * to look at those screens against a real batch. It is opt-in now because the
@@ -33,7 +33,7 @@ const FIXTURE_FALLBACK = process.env.NEXT_PUBLIC_FIXTURE_FALLBACK === "1"
  * **Fixtures:** all twelve surfaces are sample data. Postgres, the worker and
  * the bucket are all absent, and nothing on screen belongs to anyone.
  *
- * **Live:** the seven routes are real. The other five have no route yet, so by
+ * **Live:** the eight routes are real. The other four have no route yet, so by
  * default they refuse with a sentence that says so — see `NotBuilt` in
  * `live.ts` — and only fall back to sample data when asked to. Sample rows
  * served under a real batch are indistinguishable from the user's own, which is

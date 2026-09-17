@@ -11,6 +11,7 @@ export const LiveApi: Pick<
   | "updateSchemas"
   | "convert"
   | "pollResult"
+  | "getTable"
 > = {
   register: (userId) => postJson<T.RegisterResponse>("/api/register", { userId }),
 
@@ -30,10 +31,15 @@ export const LiveApi: Pick<
 
   pollResult: (userId, requestId, signal) =>
     postJson<T.ResultPollResponse>("/api/polling/result", { userId, requestId }, signal),
+
+  // No userId: the signature never had one, and the route reads the session
+  // cookie instead of trusting a field the caller chose.
+  getTable: (requestId, schemaId) =>
+    postJson<T.TableData>("/api/table", { requestId, schemaId }),
 }
 
 /**
- * §0.9's five surfaces have no route on the server yet.
+ * §0.9's remaining four surfaces have no route on the server yet.
  *
  * They used to fall through to `FixtureApi` in live mode, which meant the table,
  * evidence and merge screens quietly served invented rows that looked exactly
@@ -46,9 +52,8 @@ export const LiveApi: Pick<
  */
 export const NotBuilt: Pick<
   QuarryApi,
-  "getTable" | "getEvidence" | "getRawText" | "getMergeGroups" | "createMerge"
+  "getEvidence" | "getRawText" | "getMergeGroups" | "createMerge"
 > = {
-  getTable: notBuilt("The table screen"),
   getEvidence: notBuilt("Evidence"),
   getRawText: notBuilt("Raw text"),
   getMergeGroups: notBuilt("Combining tables"),

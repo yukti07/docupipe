@@ -41,4 +41,17 @@ describe("LiveApi", () => {
     const res = await LiveApi.pollSchemas("u", "r", ["f1"])
     expect(res.convertAvailable).toBe(true)
   })
+
+  it("asks for a table by request and schema, and sends no userId to check", async () => {
+    server.use(
+      http.post("/api/table", async ({ request }) => {
+        // The route reads the session cookie instead, so a userId in the body
+        // would be a claim nothing verifies.
+        expect(await request.json()).toEqual({ requestId: "req_1", schemaId: "sch_32" })
+        return HttpResponse.json({ requestId: "req_1", schemaId: "sch_32", rows: [] })
+      }),
+    )
+    const table = await LiveApi.getTable("req_1", "sch_32")
+    expect(table.rows).toEqual([])
+  })
 })
