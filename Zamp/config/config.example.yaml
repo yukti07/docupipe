@@ -1,0 +1,23 @@
+app:
+  environment: development
+  log_level: INFO
+database:
+  url: postgresql+psycopg://zamp:change-me@localhost:5432/zamp
+  pool_size: 2
+  max_overflow: 2
+gcp:
+  project_id: ""
+  storage_bucket: ""
+processing:
+  csv_chunk_size: 1000
+  max_file_size_mb: 100
+  max_records: 100000
+schema:
+  sample_rows: 20
+  max_sample_bytes: 1048576
+llm:
+  enabled: false
+  provider: "gemini"
+  model: "gemini-3.6-flash"
+  api_key: ""
+

@@ -1,0 +1,11 @@
+Return exactly one JSON object with top-level keys `schema` and `metadata`; do not return markdown or explanatory prose.
+`schema.fields` must contain only observed source columns/keys, in source order. Each field must include `name`, `type`, `required`, `description`, and `aliases`.
+Allowed types: `text`, `number`, `date`, `currency`, `boolean`, `list`, `string`, `integer`, `datetime`, `array`, `object`, `null`.
+Use `required=true` only when every observed record has a non-null value. Do not add or remove columns.
+
+You may suggest descriptions or semantic typing improvements, but preserve observed names and raw values.
+
+Schema: {{SCHEMA}}
+Sample data: {{SAMPLE_DATA}}
+Statistics: {{STATISTICS}}
+

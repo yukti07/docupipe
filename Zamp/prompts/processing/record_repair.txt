@@ -1,0 +1,4 @@
+Suggest a repair only when it is directly supported by the source record. Return only a structured response.
+
+Schema: {{SCHEMA}}
+Record: {{RECORD}}

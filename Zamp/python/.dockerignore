@@ -1,0 +1,9 @@
+# Build context is python/. Keep bytecode and build artifacts out of the image and
+# out of the upload to Cloud Build.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+dist/
+build/

@@ -1,0 +1,23 @@
+# Build context is `python/` for both images; run this from the repo root.
+# _TAG defaults to `latest` so a manual `gcloud builds submit` works with no substitutions.
+# From a trigger, pass _TAG=$COMMIT_SHA to keep immutable per-commit tags.
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: zamp
+  _TAG: latest
+steps:
+  # waitFor '-' starts both immediately: the images are independent, so they build in parallel.
+  - name: gcr.io/cloud-builders/docker
+    id: schema-detector
+    waitFor: ['-']
+    args: [build, --tag, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/schema-detector:${_TAG}', --file, python/schema-detector/Dockerfile, python]
+  - name: gcr.io/cloud-builders/docker
+    id: data-processor
+    waitFor: ['-']
+    args: [build, --tag, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/data-processor:${_TAG}', --file, python/data-processor/Dockerfile, python]
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/schema-detector:${_TAG}'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/data-processor:${_TAG}'
+options:
+  # Required when a build runs as a user-specified service account, harmless otherwise.
+  logging: CLOUD_LOGGING_ONLY

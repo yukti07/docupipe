@@ -1,0 +1,5 @@
+Validate this record against the supplied schema. Return only a structured response.
+
+Schema: {{SCHEMA}}
+Record: {{RECORD}}
+
