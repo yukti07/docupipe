@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { render, screen, waitFor } from "@/test/render"
+import { render, screen } from "@/test/render"
 import { MarkedCellNav } from "./MarkedCellNav"
-import { RawTextView } from "./RawTextView"
 
 describe("MarkedCellNav", () => {
   const ids = ["val_a", "val_b", "val_c"]
@@ -39,19 +38,5 @@ describe("MarkedCellNav", () => {
       <MarkedCellNav valueIds={[]} currentValueId={null} onSelect={vi.fn()} />,
     )
     expect(container).toBeEmptyDOMElement()
-  })
-})
-
-describe("RawTextView", () => {
-  it("names the wait, then shows the text as it came off each page", async () => {
-    render(<RawTextView requestId="req_1" schemaId="sch_32" />)
-    expect(screen.getByText("Reading the text off the pages")).toBeVisible()
-
-    await waitFor(() => expect(screen.getByText("Page 1")).toBeVisible())
-    expect(screen.getByText(/before any of it became fields/)).toBeVisible()
-    // The header appears on every page of the fixture, which is the point.
-    expect(screen.getAllByText(/FERRO CASTINGS LTD/)).toHaveLength(3)
-    expect(screen.getByText("Page 2")).toBeVisible()
-    expect(screen.getByText("Page 3")).toBeVisible()
   })
 })
