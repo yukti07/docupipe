@@ -76,7 +76,7 @@ class ProcessingPipeline:
                 self.schemas.set_result_stage(file_id, "FILLING")
 
                 reader = self.registry.resolve(source.mime_type, source.filename)
-                for number, canonical in enumerate(reader.read(source, str(path)), start=1):
+                for number, canonical in enumerate(reader.read(source, str(path), version.schema_definition), start=1):
                     if number > self.max_records:
                         raise DomainError("Configured record limit exceeded", "MAX_RECORDS_EXCEEDED")
                     self._one_record(run.id, file_id, number, canonical, version, result)

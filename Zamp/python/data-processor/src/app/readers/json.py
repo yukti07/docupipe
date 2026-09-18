@@ -4,13 +4,13 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
-from zamp_shared.domain import CanonicalRecord, SourceFile, SourceReference
+from zamp_shared.domain import CanonicalRecord, Schema, SourceFile, SourceReference
 from zamp_shared.errors import InvalidInput
 from .base import SourceReader
 
 
 class JsonReader(SourceReader):
-    def read(self, source: SourceFile, local_path: str) -> Iterator[CanonicalRecord]:
+    def read(self, source: SourceFile, local_path: str, schema: Schema) -> Iterator[CanonicalRecord]:
         with open(local_path, encoding="utf-8") as stream: data: Any = json.load(stream)
         if isinstance(data, dict):
             arrays = [value for value in data.values() if isinstance(value, list) and all(isinstance(item, dict) for item in value)]

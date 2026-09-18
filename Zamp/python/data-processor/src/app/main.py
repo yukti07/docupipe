@@ -10,13 +10,16 @@ from zamp_shared.errors import DomainError
 from zamp_shared.publisher import PubSubPublisher
 from zamp_shared.pubsub import decode_event
 from zamp_shared.repositories import Database, ErrorRepository, FileRepository, ProcessingRepository, RecordRepository, SchemaRepository
+from zamp_shared.llm import GeminiClient, PromptRepository
 from zamp_shared.storage import GCSObjectStorage
 from zamp_shared.sweep import run_sweep
 
 from app.persistence.record_writer import RecordWriter
 from app.pipeline.processing_pipeline import ProcessingPipeline
 from app.pipeline.processor_registry import ProcessorRegistry
+from app.readers.base import SourceReader
 from app.readers.csv import CsvReader
+from app.readers.image import SUPPORTED_MIME_TYPES as IMAGE_MIME_TYPES, GeminiImageReader
 from app.readers.json import JsonReader
 from app.readers.xlsx import XlsxReader
 from app.transformation.coercion import TypeCoercer
@@ -45,14 +48,25 @@ def get_pipeline() -> ProcessingPipeline:
     global _pipeline
     if _pipeline is None:
         database = get_database()
-        registry = ProcessorRegistry({
+        readers: dict[str, SourceReader] = {
             "text/csv": CsvReader(settings.processing.csv_chunk_size),
             "application/csv": CsvReader(settings.processing.csv_chunk_size),
             "text/plain": CsvReader(settings.processing.csv_chunk_size),
             "text/tab-separated-values": CsvReader(settings.processing.csv_chunk_size),
             "application/json": JsonReader(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": XlsxReader(settings.processing.csv_chunk_size),
-        })
+        }
+        if settings.llm.enabled and settings.llm.provider == "gemini" and settings.llm.api_key:
+            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.6-flash",
+                                  temperature=settings.llm.temperature,
+                                  max_output_tokens=settings.llm.max_output_tokens,
+                                  max_retries=settings.llm.max_retries,
+                                  timeout_seconds=settings.llm.timeout_seconds)
+            # One instance for every image type, matching the detector's routing.
+            image = GeminiImageReader(client, PromptRepository(settings.schema.prompts_dir),
+                                      settings.schema.max_image_bytes)
+            readers.update(dict.fromkeys(IMAGE_MIME_TYPES, image))
+        registry = ProcessorRegistry(readers)
         _pipeline = ProcessingPipeline(
             FileRepository(database), SchemaRepository(database), ProcessingRepository(database),
             GCSObjectStorage(settings.gcp.project_id), registry, SchemaMapper(), TypeCoercer(),

@@ -2,14 +2,14 @@ from collections.abc import Iterator
 
 import pandas as pd
 
-from zamp_shared.domain import CanonicalRecord, SourceFile, SourceReference
+from zamp_shared.domain import CanonicalRecord, Schema, SourceFile, SourceReference
 from .base import SourceReader
 
 
 class XlsxReader(SourceReader):
     def __init__(self, chunk_size: int): self.chunk_size = chunk_size
 
-    def read(self, source: SourceFile, local_path: str) -> Iterator[CanonicalRecord]:
+    def read(self, source: SourceFile, local_path: str, schema: Schema) -> Iterator[CanonicalRecord]:
         sheet = None
         # Detector persists the chosen sheet in schema metadata; for P0 first meaningful sheet is deterministic.
         workbook = pd.ExcelFile(local_path)

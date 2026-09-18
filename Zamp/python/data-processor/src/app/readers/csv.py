@@ -2,14 +2,14 @@ from collections.abc import Iterator
 
 import pandas as pd
 
-from zamp_shared.domain import CanonicalRecord, SourceFile, SourceReference
+from zamp_shared.domain import CanonicalRecord, Schema, SourceFile, SourceReference
 from .base import SourceReader
 
 
 class CsvReader(SourceReader):
     def __init__(self, chunk_size: int): self.chunk_size = chunk_size
 
-    def read(self, source: SourceFile, local_path: str) -> Iterator[CanonicalRecord]:
+    def read(self, source: SourceFile, local_path: str, schema: Schema) -> Iterator[CanonicalRecord]:
         row_number = 1
         for frame in pd.read_csv(local_path, chunksize=self.chunk_size):
             for _, row in frame.iterrows():

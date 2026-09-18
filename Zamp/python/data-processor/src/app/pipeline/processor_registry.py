@@ -1,14 +1,6 @@
 from zamp_shared.errors import UnsupportedMimeType
+from zamp_shared.mime import EXTENSION_TYPES, extension_of
 from app.readers.base import SourceReader
-
-#: The same fallback the detector uses. The backend guesses a content type
-#: from the extension, so the two have to agree on what an extension means or
-#: a file the detector read is one the processor refuses.
-EXTENSION_TYPES = {
-    ".csv": "text/csv",
-    ".json": "application/json",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
 
 
 class ProcessorRegistry:
@@ -20,7 +12,6 @@ class ProcessorRegistry:
         reader = self.readers.get(normalized)
         if reader: return reader
 
-        extension = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        reader = self.readers.get(EXTENSION_TYPES.get(extension, ""))
+        reader = self.readers.get(EXTENSION_TYPES.get(extension_of(filename), ""))
         if reader: return reader
         raise UnsupportedMimeType(f"Data processing does not support {mime_type or filename}")

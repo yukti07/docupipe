@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY shared /app/shared
+COPY prompts /app/prompts
 COPY data-processor/requirements.txt /app/data-processor/requirements.txt
 RUN pip install --no-cache-dir /app/shared -r /app/data-processor/requirements.txt
 COPY data-processor/src /app/src
