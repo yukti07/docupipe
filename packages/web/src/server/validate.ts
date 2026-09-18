@@ -116,6 +116,7 @@ const BY_EXTENSION: Record<string, string> = {
   txt: "text/plain",
   md: "text/markdown",
   png: "image/png",
+  bmp: "image/bmp",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   tif: "image/tiff",
