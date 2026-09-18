@@ -1,0 +1,45 @@
+Here is the schema I extracted from the receipt image:
+
+{
+  "name": "corner_store_receipt",
+  "fields": [
+    {
+      "name": "line_item",
+      "type": "text",
+      "required": true,
+      "description": "Product name as printed on the receipt line",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "quantity",
+      "type": "integer",
+      "required": false,
+      "description": "Units purchased, omitted on single-unit lines",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "price",
+      "type": "currency",
+      "required": true,
+      "description": "Price charged for the line",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    }
+  ],
+  "metadata": {
+    "format": "image",
+    "confidence": 0.81,
+    "notes": [
+      "thermal print; quantity column blank on several observed lines"
+    ],
+    "provider": "gemini"
+  }
+}

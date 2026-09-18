@@ -1,0 +1,25 @@
+{
+  "name": "notice_photo",
+  "fields": [
+    {
+      "name": "content",
+      "type": "text",
+      "required": false,
+      "description": "Full text content of the image",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    }
+  ],
+  "metadata": {
+    "format": "image",
+    "confidence": 0.6,
+    "notes": [
+      "single paragraph of prose; no table, form or repeated structure present"
+    ],
+    "provider": "gemini"
+  }
+}
+
+I could not find any tabular structure in this image.

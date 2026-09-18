@@ -1,0 +1,96 @@
+```json
+{
+  "note": "considered the totals block separately"
+}
+```
+```json
+{
+  "name": "northwind_invoice",
+  "fields": [
+    {
+      "name": "invoice_number",
+      "type": "text",
+      "required": true,
+      "description": "Reference in the header",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "issued_on",
+      "type": "date",
+      "required": true,
+      "description": "Issue date",
+      "aliases": [
+        "date"
+      ],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "line_items",
+      "type": "array",
+      "required": true,
+      "description": "Repeated rows of the central table",
+      "aliases": [],
+      "fields": [],
+      "item_type": "object",
+      "item_fields": [
+        {
+          "name": "description",
+          "type": "text",
+          "required": true,
+          "description": "What was supplied",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        },
+        {
+          "name": "qty",
+          "type": "integer",
+          "required": true,
+          "description": "Units supplied",
+          "aliases": [
+            "quantity"
+          ],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        },
+        {
+          "name": "amount",
+          "type": "currency",
+          "required": true,
+          "description": "Line amount",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        }
+      ]
+    },
+    {
+      "name": "total_due",
+      "type": "currency",
+      "required": true,
+      "description": "Final amount payable",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    }
+  ],
+  "metadata": {
+    "format": "image",
+    "confidence": 0.88,
+    "notes": [
+      "footer terms and page number ignored",
+      "logo ignored"
+    ],
+    "provider": "gemini"
+  }
+}
+```

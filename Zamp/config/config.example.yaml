@@ -15,9 +15,16 @@ processing:
 schema:
   sample_rows: 20
   max_sample_bytes: 1048576
+  max_image_bytes: 14000000
+  prompts_dir: prompts
 llm:
   enabled: false
   provider: "gemini"
   model: "gemini-3.6-flash"
+  # Secret. Set ZAMP_LLM_API_KEY in .env or Secret Manager; never here.
   api_key: ""
+  temperature: 0
+  max_output_tokens: 8192
+  max_retries: 3
+  timeout_seconds: 60
 

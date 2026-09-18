@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import base64
-import json
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 from zamp_shared.domain import Schema, SchemaDetectionContext
-from zamp_shared.errors import InvalidInput, TransientError
+from zamp_shared.errors import InvalidInput
+from zamp_shared.llm import GeminiClient
+
+from app.services.schema_parser import parse_schema
 from .base import SchemaDetector
 
 
@@ -559,31 +559,22 @@ Return no additional text."""
 
 #: Gemini reads these formats natively. Extracting text first would throw away
 #: page layout and return nothing at all for scanned pages, so the bytes go up
-#: as-is and the model does the reading.
+#: as-is and the model does the reading. Images have their own detector now;
+#: they stay listed so an image reaching this fallback is still sent as pixels
+#: rather than decoded into mojibake.
 NATIVE_MIME_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"})
 
 ATTACHED_SAMPLE = "The input is attached to this request as a file. Read it directly."
-
-#: Gemini returns 503 whenever the model is busy, which is routine.
-RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
 
 class GeminiSchemaDetector(SchemaDetector):
     #: Gemini caps a whole request at 20MB and base64 inflates bytes by a third,
     #: so the raw file has to stay under 15MB with room left for the prompt.
-    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", max_sample_bytes: int = 1_048_576, max_inline_bytes: int = 14_000_000):
-        self.api_key, self.model, self.max_sample_bytes, self.max_inline_bytes = api_key, model, max_sample_bytes, max_inline_bytes
+    def __init__(self, client: GeminiClient, max_sample_bytes: int = 1_048_576, max_inline_bytes: int = 14_000_000):
+        self.client, self.max_sample_bytes, self.max_inline_bytes = client, max_sample_bytes, max_inline_bytes
 
     def detect(self, context: SchemaDetectionContext) -> Schema:
-        raw = self._generate(self._build_parts(context))
-        payload = self._parse_json(raw)
-        try:
-            schema = Schema.model_validate(payload)
-            metadata = dict(schema.metadata)
-            metadata["provider"] = "gemini"
-            return schema.model_copy(update={"metadata": metadata})
-        except Exception as exc:
-            raise InvalidInput("Gemini returned an invalid schema", "GEMINI_SCHEMA_INVALID") from exc
+        return parse_schema(self.client.generate(self._build_parts(context)))
 
     def _build_parts(self, context: SchemaDetectionContext) -> list[dict[str, Any]]:
         path = Path(context.local_path)
@@ -599,43 +590,3 @@ class GeminiSchemaDetector(SchemaDetector):
     @staticmethod
     def _prompt(context: SchemaDetectionContext, sample: str) -> str:
         return PROMPT.format(filename=context.source_file.filename, mime_type=context.source_file.mime_type, sample=sample)
-
-    def _generate(self, parts: list[dict[str, Any]]) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-        body = json.dumps({"contents": [{"parts": parts}], "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}).encode()
-        request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                result: dict[str, Any] = json.load(response)
-        except urllib.error.HTTPError as exc:
-            # Only a rejected request is permanent. Overload is not a verdict on
-            # the file, so it must not reach the pipeline as a DomainError.
-            if exc.code in RETRYABLE_STATUS:
-                raise TransientError(f"Gemini is unavailable (HTTP {exc.code})", "GEMINI_UNAVAILABLE") from exc
-            raise InvalidInput(f"Gemini rejected the schema detection request with HTTP {exc.code}", "GEMINI_REQUEST_FAILED") from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise TransientError("Gemini could not be reached", "GEMINI_UNREACHABLE") from exc
-        try:
-            parts = result["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise InvalidInput("Gemini returned no content", "GEMINI_EMPTY_RESPONSE") from exc
-        # A thinking model interleaves reasoning parts that carry no text at all.
-        text = "".join(part["text"] for part in parts if "text" in part)
-        if not text:
-            raise InvalidInput("Gemini returned no text", "GEMINI_EMPTY_RESPONSE")
-        return text
-
-    @staticmethod
-    def _parse_json(raw: str) -> dict[str, Any]:
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        decoder = json.JSONDecoder()
-        for index, character in enumerate(cleaned):
-            if character != "{": continue
-            try:
-                value, _ = decoder.raw_decode(cleaned[index:])
-                if isinstance(value, dict) and "name" in value and "fields" in value: return value
-            except json.JSONDecodeError:
-                continue
-        raise InvalidInput("Gemini response did not contain the required JSON envelope", "GEMINI_JSON_INVALID")

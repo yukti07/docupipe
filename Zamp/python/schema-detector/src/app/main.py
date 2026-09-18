@@ -10,11 +10,14 @@ from zamp_shared.errors import DomainError
 from zamp_shared.publisher import PubSubPublisher
 from zamp_shared.pubsub import decode_event
 from zamp_shared.repositories import Database, FileRepository, SchemaRepository
+from zamp_shared.llm import GeminiClient, PromptRepository
 from zamp_shared.storage import GCSObjectStorage
 from zamp_shared.sweep import run_sweep
 
+from app.detectors.base import SchemaDetector
 from app.detectors.csv import CsvSchemaDetector
 from app.detectors.gemini import GeminiSchemaDetector
+from app.detectors.image import SUPPORTED_MIME_TYPES as IMAGE_MIME_TYPES, GeminiImageSchemaDetector
 from app.detectors.json import JsonSchemaDetector
 from app.detectors.xlsx import XlsxSchemaDetector
 from app.pipeline.detector_registry import DetectorRegistry
@@ -45,17 +48,28 @@ def get_pipeline() -> SchemaPipeline:
     global _pipeline
     if _pipeline is None:
         database = get_database()
-        fallback = None
-        if settings.llm.enabled and settings.llm.provider == "gemini" and settings.llm.api_key:
-            fallback = GeminiSchemaDetector(settings.llm.api_key, settings.llm.model or "gemini-3.6-flash", settings.schema.max_sample_bytes)
-        registry = DetectorRegistry({
+        detectors: dict[str, SchemaDetector] = {
             "text/csv": CsvSchemaDetector(settings.schema.sample_rows),
             "application/csv": CsvSchemaDetector(settings.schema.sample_rows),
             "text/plain": CsvSchemaDetector(settings.schema.sample_rows),
             "text/tab-separated-values": CsvSchemaDetector(settings.schema.sample_rows),
             "application/json": JsonSchemaDetector(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": XlsxSchemaDetector(settings.schema.sample_rows),
-        }, fallback)
+        }
+        fallback = None
+        if settings.llm.enabled and settings.llm.provider == "gemini" and settings.llm.api_key:
+            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.6-flash",
+                                  temperature=settings.llm.temperature,
+                                  max_output_tokens=settings.llm.max_output_tokens,
+                                  max_retries=settings.llm.max_retries,
+                                  timeout_seconds=settings.llm.timeout_seconds)
+            fallback = GeminiSchemaDetector(client, settings.schema.max_sample_bytes)
+            # One instance for every image type. A per-MIME branch here would be
+            # the same detector written out seven times.
+            image = GeminiImageSchemaDetector(client, PromptRepository(settings.schema.prompts_dir),
+                                              settings.schema.max_image_bytes)
+            detectors.update(dict.fromkeys(IMAGE_MIME_TYPES, image))
+        registry = DetectorRegistry(detectors, fallback)
         _pipeline = SchemaPipeline(
             FileRepository(database), SchemaRepository(database), GCSObjectStorage(settings.gcp.project_id),
             registry, SchemaValidator(), database=database, instance_id=INSTANCE_ID,

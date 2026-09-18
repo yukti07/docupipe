@@ -44,6 +44,9 @@ _BY_CODE: dict[str, str] = {
     "GEMINI_REQUEST_FAILED": "provider_refused",
     "GEMINI_EMPTY_RESPONSE": "provider_refused",
     "GEMINI_JSON_INVALID": "response_unparseable",
+    "GEMINI_RESPONSE_TRUNCATED": "too_large",
+    "GEMINI_REQUEST_REFUSED": "provider_refused",
+    "GEMINI_RECORDS_INVALID": "response_unparseable",
     "GEMINI_SCHEMA_INVALID": "schema_inference_failed",
     # converting it
     "TYPE_COERCION_FAILED": "field_unresolved",

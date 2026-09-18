@@ -1,0 +1,57 @@
+{
+  "schema": {
+    "name": "account_opening_form",
+    "fields": [
+      {
+        "name": "full_name",
+        "type": "text",
+        "required": true,
+        "description": "Applicant name entered beside the Name label",
+        "aliases": [],
+        "fields": [],
+        "item_type": null,
+        "item_fields": []
+      },
+      {
+        "name": "date_of_birth",
+        "type": "date",
+        "required": false,
+        "description": "Date of birth captured in the boxed field",
+        "aliases": [],
+        "fields": [],
+        "item_type": null,
+        "item_fields": []
+      },
+      {
+        "name": "address",
+        "type": "text",
+        "required": false,
+        "description": "Postal address block beneath the name row",
+        "aliases": [],
+        "fields": [],
+        "item_type": null,
+        "item_fields": []
+      },
+      {
+        "name": "account_type",
+        "type": "text",
+        "required": false,
+        "description": "Selected account category",
+        "aliases": [
+          "type of account"
+        ],
+        "fields": [],
+        "item_type": null,
+        "item_fields": []
+      }
+    ]
+  },
+  "metadata": {
+    "format": "image",
+    "confidence": 0.74,
+    "notes": [
+      "several value boxes are blank; requiredness inferred from layout only"
+    ],
+    "provider": "gemini"
+  }
+}

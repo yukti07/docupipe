@@ -1,0 +1,66 @@
+{
+  "name": "employees",
+  "fields": [
+    {
+      "name": "employee_id",
+      "type": "text",
+      "required": true,
+      "description": "Identifier for the employee record",
+      "aliases": [
+        "id"
+      ],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "first_name",
+      "type": "text",
+      "required": true,
+      "description": "Given name",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "last_name",
+      "type": "text",
+      "required": true,
+      "description": "Family name",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "department",
+      "type": "text",
+      "required": true,
+      "description": "Business unit the employee belongs to",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "salary",
+      "type": "number",
+      "required": true,
+      "description": "Annual salary as shown, unlabelled currency",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    }
+  ],
+  "metadata": {
+    "format": "image",
+    "confidence": 0.95,
+    "notes": [
+      "column headers read from the grid header row",
+      "search box and density toggle ignored as UI chrome"
+    ],
+    "provider": "gemini"
+  }
+}

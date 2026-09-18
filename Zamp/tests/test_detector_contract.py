@@ -26,16 +26,29 @@ def test_detector_registry_normalizes_mime_parameters_and_extension() -> None:
 
 
 def test_gemini_parser_extracts_json_from_prose_and_markdown() -> None:
-    from app.detectors.gemini import GeminiSchemaDetector
+    from app.services.schema_parser import extract_payload
 
     raw = 'Here is the schema:\n```json\n{"name":"records","fields":[{"name":"id","type":"integer","required":true,"description":null,"aliases":[],"fields":[],"item_type":null,"item_fields":[]}],"metadata":{"format":"unknown"}}\n```'
-    payload = GeminiSchemaDetector._parse_json(raw)
+    payload = extract_payload(raw)
     assert payload["fields"][0]["name"] == "id"
 
 
 def test_gemini_parser_rejects_response_without_schema() -> None:
-    from app.detectors.gemini import GeminiSchemaDetector
+    from app.services.schema_parser import extract_payload
     import pytest
 
     with pytest.raises(Exception):
-        GeminiSchemaDetector._parse_json("No JSON schema was found.")
+        extract_payload("No JSON schema was found.")
+
+
+def test_detector_registry_routes_image_types() -> None:
+    from app.detectors.csv import CsvSchemaDetector
+    from app.pipeline.detector_registry import DetectorRegistry
+
+    image = CsvSchemaDetector()
+    registry = DetectorRegistry({"image/png": image, "image/tiff": image})
+    assert registry.resolve("image/png") is image
+    assert registry.resolve("IMAGE/PNG; charset=binary") is image
+    # The backend types a .tif from its extension, so both spellings must land.
+    assert registry.resolve("application/octet-stream", "scan.tiff") is image
+    assert registry.resolve("application/octet-stream", "scan.tif") is image

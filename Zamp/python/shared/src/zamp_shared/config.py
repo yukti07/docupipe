@@ -52,6 +52,11 @@ class SchemaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ZAMP_SCHEMA_", extra="ignore")
     sample_rows: int = 20
     max_sample_bytes: int = 1_048_576
+    #: Gemini caps a whole request at 20MB and base64 inflates bytes by a third,
+    #: so the raw image has to stay under 15MB with room left for the prompt.
+    max_image_bytes: int = 14_000_000
+    #: Relative to the working directory, which is /app in both images.
+    prompts_dir: str = "prompts"
 
 
 class LlmSettings(BaseSettings):
@@ -60,6 +65,11 @@ class LlmSettings(BaseSettings):
     provider: str = ""
     model: str = ""
     api_key: str = ""
+    temperature: float = 0.0
+    max_output_tokens: int = 8192
+    #: Attempts after the first, so 3 means at most 4 requests.
+    max_retries: int = 3
+    timeout_seconds: int = 60
 
 
 class Settings:

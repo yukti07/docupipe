@@ -1,0 +1,126 @@
+```json
+{
+  "name": "acme_invoice_0043",
+  "fields": [
+    {
+      "name": "invoice_number",
+      "type": "text",
+      "required": true,
+      "description": "Invoice reference printed in the header block",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "date",
+      "type": "date",
+      "required": true,
+      "description": "Date the invoice was issued",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "vendor",
+      "type": "text",
+      "required": true,
+      "description": "Supplying company named above the billing address",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "items",
+      "type": "array",
+      "required": true,
+      "description": "Repeated line items in the central table",
+      "aliases": [],
+      "fields": [],
+      "item_type": "object",
+      "item_fields": [
+        {
+          "name": "item",
+          "type": "text",
+          "required": true,
+          "description": "Description of the goods or service supplied",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        },
+        {
+          "name": "quantity",
+          "type": "integer",
+          "required": true,
+          "description": "Units billed",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        },
+        {
+          "name": "unit_price",
+          "type": "currency",
+          "required": true,
+          "description": "Price for a single unit",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        },
+        {
+          "name": "total",
+          "type": "currency",
+          "required": true,
+          "description": "Line total for this item",
+          "aliases": [],
+          "fields": [],
+          "item_type": null,
+          "item_fields": []
+        }
+      ]
+    },
+    {
+      "name": "subtotal",
+      "type": "currency",
+      "required": true,
+      "description": "Sum of line totals before tax",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "tax",
+      "type": "currency",
+      "required": false,
+      "description": "Tax applied to the subtotal",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    },
+    {
+      "name": "total",
+      "type": "currency",
+      "required": true,
+      "description": "Amount payable",
+      "aliases": [],
+      "fields": [],
+      "item_type": null,
+      "item_fields": []
+    }
+  ],
+  "metadata": {
+    "format": "image",
+    "confidence": 0.92,
+    "notes": [
+      "line-item table has no ruled borders; columns inferred from alignment"
+    ],
+    "provider": "gemini"
+  }
+}
+```

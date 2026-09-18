@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY shared /app/shared
+COPY prompts /app/prompts
 COPY schema-detector/requirements.txt /app/schema-detector/requirements.txt
 RUN pip install --no-cache-dir /app/shared -r /app/schema-detector/requirements.txt
 COPY schema-detector/src /app/src
