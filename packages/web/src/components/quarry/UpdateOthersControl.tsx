@@ -154,7 +154,7 @@ export function UpdateOthersControl({
                 {/* The near-matches are the part worth knowing before taking the
                     lot — they are the ones that gain a field they never had. */}
                 <span className="text-[12px] text-muted-foreground">
-                  All {count} at once.
+                  All at once.
                   {differing > 0 && ` ${formatCount(differing)} of them differ by a field.`}
                 </span>
               </span>

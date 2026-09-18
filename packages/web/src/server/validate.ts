@@ -61,6 +61,54 @@ export function schemaId(body: Record<string, unknown>): string {
   return str(body, "schemaId", { pattern: SCHEMA_ID, label: "schemaId" })
 }
 
+/** Server-generated ids, so this is a shape check; the rows are still scoped by owner. */
+export function idList(
+  body: Record<string, unknown>,
+  key: string,
+  options: { max?: number } = {},
+): string[] {
+  const raw = array<unknown>(body, key, { min: 1, max: options.max ?? 500 })
+  return raw.map((value, index) => {
+    if (typeof value !== "string" || !SCHEMA_ID.test(value.trim())) {
+      throw new ApiFailure("internal", {
+        message: `${key}[${index}] is not in the expected form.`,
+      })
+    }
+    return value.trim()
+  })
+}
+
+export function fileIds(body: Record<string, unknown>): string[] {
+  return idList(body, "fileIds")
+}
+
+export function mergeId(body: Record<string, unknown>): string {
+  return str(body, "mergeId", { pattern: SCHEMA_ID, label: "mergeId" })
+}
+
+/**
+ * One submit carries several groups. The shape is checked here; whether the
+ * tables may actually be combined is the service's job, because that answer
+ * has to come back as a conflict the screen can render rather than a 400.
+ */
+export function mergeSubmissions(
+  body: Record<string, unknown>,
+): { name: string; schemaIds: string[] }[] {
+  const raw = array<unknown>(body, "merges", { min: 1, max: 50 })
+
+  return raw.map((entry, index) => {
+    const group = asObject(entry)
+    const name = typeof group.name === "string" ? group.name.trim().slice(0, 120) : ""
+    const schemaIds = idList(group, "schemaIds", { max: 500 })
+    if (schemaIds.length < 2) {
+      throw new ApiFailure("internal", {
+        message: `merges[${index}] needs at least two tables in it.`,
+      })
+    }
+    return { name, schemaIds }
+  })
+}
+
 export function array<T>(
   body: Record<string, unknown>,
   key: string,

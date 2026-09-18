@@ -2,12 +2,14 @@ import evidenceFixture from "@fixtures/api/evidence.json"
 import mergeGroupsFixture from "@fixtures/api/merge-groups.json"
 import rawTextFixture from "@fixtures/api/raw-text.json"
 import tableFixture from "@fixtures/api/table-invoice-1044.json"
+import { mergeConflicts, type ShapedTable } from "@/lib/merge"
 import type { QuarryApi } from "./contract"
 import type {
   Evidence,
   FieldType,
   MergeConflictDetail,
   MergeGroup,
+  MergedTable,
   MergeResult,
   RawText,
   SchemaField,
@@ -67,6 +69,9 @@ function syntheticRow(schemaId: string, fields: SchemaField[], index: number): T
 function tableFor(requestId: string, schemaId: string): TableData {
   if (schemaId === TABLE.schemaId) return { ...TABLE, requestId }
 
+  const merge = fixtureMerges.get(schemaId)
+  if (merge) return mergedTableFor(requestId, merge)
+
   const group = MERGE_GROUPS.find((g) => g.members.some((m) => m.schemaId === schemaId))
   const member = group?.members.find((m) => m.schemaId === schemaId)
   const fields = group?.fields ?? TABLE.fields
@@ -81,6 +86,36 @@ function tableFor(requestId: string, schemaId: string): TableData {
     pageRange: null,
     fields,
     rows: Array.from({ length: rowCount }, (_, i) => syntheticRow(schemaId, fields, i)),
+  }
+}
+
+/** Every member's rows under one another, each carrying the table it came from. */
+function mergedTableFor(
+  requestId: string,
+  merge: MergedTable & { schemaIds: string[] },
+): TableData {
+  const group = MERGE_GROUPS.find((g) => g.shapeHash === merge.shapeHash)
+  const fields = group?.fields ?? TABLE.fields
+
+  const rows = merge.schemaIds.flatMap((schemaId) => {
+    const member = group?.members.find((m) => m.schemaId === schemaId)
+    const source = member ? `${member.fileName} · ${member.tableLabel}` : schemaId
+    return Array.from({ length: member?.rowCount ?? 0 }, (_, i) => ({
+      ...syntheticRow(schemaId, fields, i),
+      sourceFile: source,
+    }))
+  })
+
+  return {
+    requestId,
+    schemaId: merge.mergeId,
+    fileId: merge.mergeId,
+    fileName: merge.name,
+    tableLabel: merge.name,
+    pageRange: null,
+    merged: true,
+    fields,
+    rows,
   }
 }
 
@@ -116,10 +151,8 @@ function evidenceFor(valueId: string): Evidence {
 /* Merge — the exact check, run client-side until the endpoint lands   */
 /* ------------------------------------------------------------------ */
 
-type Selected = { schemaId: string; tableName: string; fields: SchemaField[] }
-
-function selectedTables(schemaIds: string[]): Selected[] {
-  const out: Selected[] = []
+function selectedTables(schemaIds: string[]): ShapedTable[] {
+  const out: ShapedTable[] = []
   for (const group of MERGE_GROUPS) {
     for (const member of group.members) {
       if (!schemaIds.includes(member.schemaId)) continue
@@ -133,43 +166,33 @@ function selectedTables(schemaIds: string[]): Selected[] {
   return out
 }
 
-/**
- * Same names, same types, order-independent. No widening, no subsetting, no
- * coercion — a field one table lacks is as much a conflict as a field two
- * tables disagree about.
- */
-export function mergeConflicts(tables: Selected[]): MergeConflictDetail[] {
-  const names = new Set<string>()
-  for (const table of tables) for (const field of table.fields) names.add(field.key)
-
-  const conflicts: MergeConflictDetail[] = []
-  for (const name of names) {
-    const byType = new Map<FieldType, string[]>()
-    let present = 0
-    for (const table of tables) {
-      const field = table.fields.find((f) => f.key === name)
-      if (!field) continue
-      present += 1
-      byType.set(field.type, [...(byType.get(field.type) ?? []), table.tableName])
-    }
-    const disagrees = byType.size > 1
-    const missing = present !== tables.length
-    if (!disagrees && !missing) continue
-    conflicts.push({
-      field: name,
-      groups: [...byType.entries()].map(([type, tableNames]) => ({ type, tableNames })),
-    })
-  }
-
-  // A type disagreement is the more specific complaint, so it is named first.
-  return conflicts.sort((a, b) => b.groups.length - a.groups.length)
-}
-
 /* ------------------------------------------------------------------ */
+
+/**
+ * Merges made in this browser session. The fixtures have no server behind them,
+ * so a merge has to be remembered somewhere for the results list to show it —
+ * and the merge screen is only honest if pressing Save changes what comes back
+ * from the next overview.
+ */
+const fixtureMerges = new Map<string, MergedTable & { schemaIds: string[] }>()
+
+/** Groups minus whatever is already merged, which is what the picker may offer. */
+function openGroups(): MergeGroup[] {
+  const taken = new Set([...fixtureMerges.values()].flatMap((m) => m.schemaIds))
+  return MERGE_GROUPS.map((group) => ({
+    ...group,
+    members: group.members.filter((m) => !taken.has(m.schemaId)),
+  })).filter((group) => group.members.length > 0)
+}
 
 export const FixtureApi: Pick<
   QuarryApi,
-  "getTable" | "getEvidence" | "getRawText" | "getMergeGroups" | "createMerge"
+  | "getTable"
+  | "getEvidence"
+  | "getRawText"
+  | "getMergeOverview"
+  | "createMerges"
+  | "deleteMerge"
 > = {
   getTable: (requestId, schemaId) => later(tableFor(requestId, schemaId)),
 
@@ -178,30 +201,55 @@ export const FixtureApi: Pick<
   getRawText: (_requestId, schemaId) =>
     later(schemaId === RAW_TEXT.schemaId ? RAW_TEXT : { ...RAW_TEXT, schemaId }),
 
-  getMergeGroups: () => later(MERGE_GROUPS),
+  getMergeOverview: () =>
+    later({
+      groups: openGroups(),
+      merges: [...fixtureMerges.values()],
+      tableCount: openGroups().reduce((n, g) => n + g.members.length, 0) + fixtureMerges.size,
+    }),
 
-  createMerge: (_requestId, schemaIds, name) => {
-    const tables = selectedTables(schemaIds)
-    const conflicts = mergeConflicts(tables)
-
-    if (conflicts.length > 0) {
-      return later<MergeResult>({
-        ok: false,
-        failure: { class: "merge_incompatible" },
-        conflicts,
-      })
+  createMerges: (_userId, _requestId, submissions) => {
+    const conflicts: MergeConflictDetail[] = []
+    for (const submission of submissions) {
+      const tables = selectedTables(submission.schemaIds)
+      const shapeHash = shapeHashOf(submission.schemaIds)
+      conflicts.push(
+        ...mergeConflicts(tables).map((conflict) => ({ ...conflict, shapeHash })),
+      )
     }
 
-    const rowCount = MERGE_GROUPS.flatMap((g) => g.members)
-      .filter((m) => schemaIds.includes(m.schemaId))
-      .reduce((sum, m) => sum + m.rowCount, 0)
+    if (conflicts.length > 0) {
+      return later<MergeResult>({ ok: false, failure: { class: "merge_incompatible" }, conflicts })
+    }
 
-    return later<MergeResult>({
-      ok: true,
-      mergeId: `mrg_${schemaIds.length}_${rowCount}`,
-      name,
-      rowCount,
-      tableCount: tables.length,
+    const merges = submissions.map((submission) => {
+      const members = MERGE_GROUPS.flatMap((g) => g.members).filter((m) =>
+        submission.schemaIds.includes(m.schemaId),
+      )
+      const merge: MergedTable & { schemaIds: string[] } = {
+        mergeId: `mrg_${shapeHashOf(submission.schemaIds)}_${submission.schemaIds.length}`,
+        name: submission.name,
+        rowCount: members.reduce((sum, m) => sum + m.rowCount, 0),
+        tableCount: members.length,
+        shapeHash: shapeHashOf(submission.schemaIds),
+        schemaIds: submission.schemaIds,
+      }
+      fixtureMerges.set(merge.mergeId, merge)
+      return merge
     })
+
+    const open = openGroups().reduce((n, g) => n + g.members.length, 0)
+    return later<MergeResult>({ ok: true, merges, tableCount: open + fixtureMerges.size })
   },
+
+  deleteMerge: (_userId, _requestId, mergeId) => {
+    fixtureMerges.delete(mergeId)
+    return later({ status: "ok" as const })
+  },
+}
+
+/** The shape the first of these tables has — every member of a group shares it. */
+function shapeHashOf(schemaIds: string[]): string {
+  const group = MERGE_GROUPS.find((g) => g.members.some((m) => schemaIds.includes(m.schemaId)))
+  return group?.shapeHash ?? "unknown"
 }

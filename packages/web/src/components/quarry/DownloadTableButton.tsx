@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import { Button } from "@/components/ui/button"
 import type { Failure, TableData } from "@/lib/api/types"
-import { csvFileName, downloadText, toCsv } from "@/lib/csv"
+import { csvFileName, downloadText, sourceColumnFor, toCsv } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 
 /**
@@ -37,7 +37,7 @@ export function DownloadTableButton({
   function download() {
     setFailure(null)
     try {
-      const { text } = toCsv(table)
+      const { text } = toCsv(table, { sourceColumn: sourceColumnFor(table)?.value })
       downloadText(csvFileName(table.fileName), text)
     } catch {
       setFailure({

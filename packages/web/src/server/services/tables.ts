@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { CellValue, SchemaField, TableData, TableRow } from "@/lib/api/types"
+import { isMergeId } from "@/lib/merge"
 import { query, queryOne } from "../db/client"
 import type { SchemaFieldJson } from "../db/repos"
 import { fail } from "../handler"
@@ -51,6 +52,111 @@ export async function getTable(
   requestId: string,
   schemaId: string,
 ): Promise<TableData> {
+  if (isMergeId(schemaId)) return getMergedTable(userId, requestId, schemaId)
+
+  const { target, records, errors } = await loadOne(userId, requestId, schemaId)
+
+  return toTableData({
+    requestId,
+    schemaId,
+    fileId: target.file_id,
+    fileName: target.original_filename,
+    tableLabel: target.table_label ?? target.original_filename,
+    fields: target.fields,
+    records,
+    errors,
+  })
+}
+
+/**
+ * Several tables under one another, with a column saying which one each row
+ * came from.
+ *
+ * The union is done here rather than in SQL because the members live in
+ * separate physical tables — one per file, named from a hash of the file id —
+ * and a UNION across them would have to be built by string concatenation
+ * anyway. Reading them one at a time costs a round trip per member and keeps
+ * every ownership check in the one place that already does it.
+ *
+ * The fields are the first member's. Every member was checked to have the same
+ * shape when the merge was written, so any of them would do.
+ */
+async function getMergedTable(
+  userId: string,
+  requestId: string,
+  mergeId: string,
+): Promise<TableData> {
+  const merge = await queryOne<{ name: string }>(
+    `SELECT name FROM table_merges WHERE id = $1 AND request_id = $2 AND user_id = $3`,
+    [mergeId, requestId, userId],
+  )
+  if (!merge) throw fail("schema_not_found", "We don't have a record of that merged table.")
+
+  const members = await query<{ file_schema_id: string }>(
+    `SELECT file_schema_id FROM table_merge_members WHERE merge_id = $1 ORDER BY ord`,
+    [mergeId],
+  )
+
+  const rows: TableRow[] = []
+  let fields: SchemaFieldJson[] = []
+
+  for (const member of members) {
+    const part = await loadOne(userId, requestId, member.file_schema_id)
+    if (fields.length === 0) fields = part.target.fields
+
+    const source = `${part.target.original_filename} · ${
+      part.target.table_label ?? "table 1"
+    }`
+
+    const table = toTableData({
+      requestId,
+      schemaId: member.file_schema_id,
+      fileId: part.target.file_id,
+      fileName: part.target.original_filename,
+      tableLabel: source,
+      fields,
+      records: part.records,
+      errors: part.errors,
+    })
+
+    rows.push(...table.rows.map((row) => ({ ...row, sourceFile: source })))
+
+    // The cap is per table, so nineteen tables of ten thousand rows each would
+    // pass every individual check and still come back as a hundred and ninety
+    // thousand. Refused on the same terms as a single table past the cap,
+    // rather than quietly cut short.
+    if (rows.length > MAX_ROWS) {
+      throw fail(
+        "too_large",
+        `These tables come to more than ${MAX_ROWS.toLocaleString()} rows together, which is more than this screen can open at once.`,
+        { nextStep: "Combine fewer of them, or download them separately." },
+      )
+    }
+  }
+
+  return {
+    requestId,
+    schemaId: mergeId,
+    fileId: mergeId,
+    fileName: merge.name,
+    tableLabel: merge.name,
+    pageRange: null,
+    merged: true,
+    fields: fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      origin: field.origin,
+    })),
+    rows,
+  }
+}
+
+async function loadOne(
+  userId: string,
+  requestId: string,
+  schemaId: string,
+): Promise<{ target: Target; records: RecordRow[]; errors: RecordErrorRow[] }> {
   // Each file's records live in a table of their own, which the worker names
   // from sha256(file_id) truncated to 24 hex characters. Deriving that name in
   // SQL rather than in Node keeps one definition instead of two that can
@@ -134,16 +240,7 @@ export async function getTable(
     )
   }
 
-  return toTableData({
-    requestId,
-    schemaId,
-    fileId: target.file_id,
-    fileName: target.original_filename,
-    tableLabel: target.table_label ?? target.original_filename,
-    fields: target.fields,
-    records,
-    errors,
-  })
+  return { target, records, errors }
 }
 
 /**

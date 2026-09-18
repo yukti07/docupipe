@@ -1,7 +1,7 @@
 import type {
-  ConvertResponse, Evidence, MergeGroup, MergeResult, RawText, RegisterResponse,
-  ResultPollResponse, SchemaPollResponse, SchemaSaveEntry, SignedUrlResponse, TableData,
-  UpdateSchemaResponse, UploadResponse, UploadedFile,
+  ConvertResponse, DiscardResponse, Evidence, MergeOverview, MergeResult, MergeSubmission,
+  RawText, RegisterResponse, ResultPollResponse, SchemaPollResponse, SchemaSaveEntry,
+  SignedUrlResponse, TableData, UpdateSchemaResponse, UploadResponse, UploadedFile,
 } from "./types"
 
 export interface QuarryApi {
@@ -23,10 +23,21 @@ export interface QuarryApi {
   convert(userId: string, requestId: string): Promise<ConvertResponse>
   pollResult(userId: string, requestId: string, signal?: AbortSignal): Promise<ResultPollResponse>
 
+  /* the way out of a file that will not convert */
+  discardFiles(userId: string, requestId: string, fileIds: string[]): Promise<DiscardResponse>
+
+  /* combining tables */
+  getMergeOverview(requestId: string): Promise<MergeOverview>
+  /** Several groups in one submit — 4 of one shape and 2 of another is one press. */
+  createMerges(
+    userId: string,
+    requestId: string,
+    merges: MergeSubmission[],
+  ): Promise<MergeResult>
+  deleteMerge(userId: string, requestId: string, mergeId: string): Promise<{ status: "ok" }>
+
   /* not on the server yet — §0.9 */
   getTable(requestId: string, schemaId: string): Promise<TableData>
   getEvidence(valueId: string): Promise<Evidence>
   getRawText(requestId: string, schemaId: string): Promise<RawText>
-  getMergeGroups(requestId: string): Promise<MergeGroup[]>
-  createMerge(requestId: string, schemaIds: string[], name: string): Promise<MergeResult>
 }

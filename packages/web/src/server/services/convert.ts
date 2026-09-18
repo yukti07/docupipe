@@ -6,6 +6,7 @@ import * as repo from "../db/repos"
 import { env } from "../env"
 import { fail } from "../handler"
 import { publishAll } from "../publish"
+import { listMergeMembers } from "./merges"
 
 /**
  * §0.6 — the gate, and §0.7 — the result poll.
@@ -135,19 +136,31 @@ export async function pollResult(
   const request = await repo.getRequest(requestId, userId)
   if (!request) throw fail("internal", "We don't have a record of that request.")
 
-  const [files, schemas, results, allowance] = await Promise.all([
+  const [files, schemas, results, allowance, mergeMembers] = await Promise.all([
     repo.listFiles(requestId),
     repo.listSchemas(requestId),
     repo.listResults(requestId),
     repo.getAllowance(userId),
+    listMergeMembers(requestId),
   ])
 
   const fileById = new Map(files.map((f) => [f.id, f]))
   const resultBySchema = new Map(results.map((r) => [r.file_schema_id, r]))
+  const mergeBySchema = new Map(mergeMembers.map((m) => [m.file_schema_id, m]))
 
   const entries: ResultEntry[] = []
   const counts = { queued: 0, extracting: 0, filling: 0, done: 0, failed: 0 }
   let rowsSoFar = 0
+
+  // A merged table stands in for its members: they leave this list and one
+  // entry takes their place, so the batch's table count falls by
+  // `members - 1` while its row count does not move at all. Accumulated as the
+  // members are walked, then spliced in where the first of them stood — the
+  // row a user was looking at should still be roughly where they left it.
+  const merged = new Map<
+    string,
+    { name: string; at: number; rows: number; toCheck: number; fields: number; done: boolean }
+  >()
 
   for (const schema of schemas) {
     const file = fileById.get(schema.file_id)
@@ -160,6 +173,24 @@ export async function pollResult(
     // table total and a stage looks like it lost one.
     const stage: ResultEntry["stage"] =
       file.stage === "FAILED" ? "FAILED" : (result?.stage ?? "QUEUED")
+
+    const member = mergeBySchema.get(schema.id)
+    if (member) {
+      const existing = merged.get(member.merge_id)
+      const rows = result?.row_count ?? 0
+      rowsSoFar += rows
+      merged.set(member.merge_id, {
+        name: member.merge_name,
+        at: existing?.at ?? entries.length,
+        rows: (existing?.rows ?? 0) + rows,
+        toCheck: (existing?.toCheck ?? 0) + (result?.to_check_count ?? 0),
+        fields: result?.field_count ?? schema.fields.length,
+        // Members are DONE when a merge is made and stages do not regress, so
+        // this is a guard rather than a case anyone should see.
+        done: (existing?.done ?? true) && stage === "DONE",
+      })
+      continue
+    }
 
     switch (stage) {
       case "QUEUED": counts.queued += 1; break
@@ -196,6 +227,32 @@ export async function pollResult(
             },
           }
         : {}),
+    })
+  }
+
+  // Back-to-front, so each splice cannot move the index the next one recorded.
+  for (const [mergeId, merge] of [...merged.entries()].sort((a, b) => b[1].at - a[1].at)) {
+    if (merge.done) counts.done += 1
+    else counts.failed += 1
+
+    entries.splice(merge.at, 0, {
+      // The merge is the table now, so it answers to both names: `schemaId` is
+      // what /api/table is asked for, and `fileId` is only ever a React key.
+      fileId: mergeId,
+      fileName: merge.name,
+      schemaId: mergeId,
+      stage: merge.done ? "DONE" : "FAILED",
+      rowCount: merge.rows,
+      fieldCount: merge.fields,
+      toCheckCount: merge.toCheck,
+      ...(merge.done
+        ? {}
+        : {
+            failure: {
+              class: "merge_incompatible" as const,
+              message: "A table in this merged table didn't finish.",
+            },
+          }),
     })
   }
 

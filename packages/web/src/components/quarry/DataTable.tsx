@@ -17,8 +17,9 @@ import {
 } from "@tanstack/react-table"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, useState } from "react"
 import { EmptyState } from "@/components/common/EmptyState"
+import { ActiveFilters, ColumnFilter } from "@/components/quarry/ColumnFilter"
 import { DataCell } from "@/components/quarry/DataCell"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { SchemaField, TableRow } from "@/lib/api/types"
@@ -120,16 +121,33 @@ export function DataTable({
     ])
   }, [density, fields, onOpenEvidence, selectedValueId, sourceColumn])
 
+  // Per-column filters are the table's own state: nothing outside it needs to
+  // read them, and the search box above is the one filter a screen does drive.
+  const [columnFilters, setColumnFilters] = useState<{ id: string; value: unknown }[]>([])
+
   const table = useTable({
     features,
     columns,
     data: rows,
-    state: { globalFilter },
+    state: { globalFilter, columnFilters },
+    onColumnFiltersChange: (updater) =>
+      setColumnFilters((current) => (typeof updater === "function" ? updater(current) : updater)),
     onGlobalFilterChange: (updater) => {
       const next = typeof updater === "function" ? updater(globalFilter) : updater
       onGlobalFilterChange?.(String(next ?? ""))
     },
   })
+
+  /** Only the ones actually narrowing anything — an empty box is not a filter. */
+  const active = columnFilters
+    .map((filter) => ({ id: filter.id, value: String(filter.value ?? "") }))
+    .filter((filter) => filter.value.trim() !== "")
+
+  const setFilter = (id: string, value: string) =>
+    setColumnFilters((current) => {
+      const rest = current.filter((filter) => filter.id !== id)
+      return value.trim() === "" ? rest : [...rest, { id, value }]
+    })
 
   const modelRows = table.getRowModel().rows
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -169,12 +187,28 @@ export function DataTable({
   }
 
   if (modelRows.length === 0) {
+    // Whichever of the two is responsible is named. Blaming the search box for
+    // a column filter leaves someone clearing a search that was already empty.
+    const searching = globalFilter.trim() !== ""
     return (
-      <div className={cn("rounded-xl border border-border-subtle bg-card", className)}>
-        <EmptyState
-          title="No rows match your search"
-          body={`Nothing in this table contains “${globalFilter}”. Clear the search to see all ${rows.length} rows.`}
+      <div className="flex flex-col gap-3">
+        <ActiveFilters
+          filters={active}
+          onRemove={(id) => setFilter(id, "")}
+          onClearAll={() => setColumnFilters([])}
         />
+        <div className={cn("rounded-xl border border-border-subtle bg-card", className)}>
+          <EmptyState
+            title={active.length > 0 ? "No rows match" : "No rows match your search"}
+            body={
+              searching && active.length > 0
+                ? `Nothing contains “${globalFilter}” and passes the ${active.length === 1 ? "column filter" : "column filters"} above. Clear one of them to see more of the ${rows.length} rows.`
+                : active.length > 0
+                  ? `No row passes the ${active.length === 1 ? "filter" : "filters"} above. Clear ${active.length === 1 ? "it" : "one of them"} to see more of the ${rows.length} rows.`
+                  : `Nothing in this table contains “${globalFilter}”. Clear the search to see all ${rows.length} rows.`
+            }
+          />
+        </div>
       </div>
     )
   }
@@ -188,13 +222,20 @@ export function DataTable({
   const visible = virtualize ? virtualItems.map((item) => modelRows[item.index]) : modelRows
 
   return (
-    <div
-      ref={scrollRef}
-      className={cn(
-        "max-h-[calc(100vh-260px)] overflow-auto rounded-xl border border-border-subtle bg-card",
-        className,
-      )}
-    >
+    <div className="flex min-h-0 flex-col gap-3">
+      <ActiveFilters
+        filters={active}
+        onRemove={(id) => setFilter(id, "")}
+        onClearAll={() => setColumnFilters([])}
+      />
+
+      <div
+        ref={scrollRef}
+        className={cn(
+          "max-h-[calc(100vh-260px)] overflow-auto rounded-xl border border-border-subtle bg-card",
+          className,
+        )}
+      >
       {/* Rules, not stripes: stripes fight the cell state colours. */}
       <table className="w-full border-collapse text-[13px]">
         <thead className="sticky top-0 z-10 bg-card">
@@ -203,24 +244,32 @@ export function DataTable({
               {group.headers.map((header) => {
                 const sorted = header.column.getIsSorted()
                 const Icon = sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ChevronsUpDown
+                const filter = active.find((entry) => entry.id === header.column.id)
                 return (
                   <th key={header.id} scope="col" className="p-0 text-left">
-                    <button
-                      type="button"
-                      onClick={() => header.column.toggleSorting()}
-                      aria-label={`Sort by ${header.column.id}`}
-                      className={cn(
-                        "flex w-full items-center gap-1.5 font-mono text-[11.5px] font-medium text-subtle-foreground hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                        HEADER_PADDING[density],
-                      )}
-                    >
-                      {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                      {/* The indicator stays visible on the sorted column, not only on hover. */}
-                      <Icon
-                        aria-hidden
-                        className={cn("size-3", sorted ? "text-foreground" : "text-muted-foreground/60")}
+                    <div className={cn("flex w-full items-center gap-1", HEADER_PADDING[density])}>
+                      <button
+                        type="button"
+                        onClick={() => header.column.toggleSorting()}
+                        aria-label={`Sort by ${header.column.id}`}
+                        className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-0.5 font-mono text-[11.5px] font-medium text-subtle-foreground hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                      >
+                        {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                        {/* The indicator stays visible on the sorted column, not only on hover. */}
+                        <Icon
+                          aria-hidden
+                          className={cn(
+                            "size-3",
+                            sorted ? "text-foreground" : "text-muted-foreground/60",
+                          )}
+                        />
+                      </button>
+                      <ColumnFilter
+                        column={header.column.id}
+                        value={filter?.value ?? ""}
+                        onChange={(value) => setFilter(header.column.id, value)}
                       />
-                    </button>
+                    </div>
                   </th>
                 )
               })}
@@ -260,16 +309,15 @@ export function DataTable({
         </tbody>
       </table>
 
-      {rows.some((row) => row.failed) && (
-        <div className="border-t border-border-subtle p-3">
-          <FailureMessage
-            compact
-            failure={
-              rows.find((row) => row.failed)!.failed ?? { class: "unknown" }
-            }
-          />
-        </div>
-      )}
+        {rows.some((row) => row.failed) && (
+          <div className="border-t border-border-subtle p-3">
+            <FailureMessage
+              compact
+              failure={rows.find((row) => row.failed)!.failed ?? { class: "unknown" }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

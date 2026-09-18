@@ -197,9 +197,55 @@ model Request {
   schemaResults FileSchemaResult[]
   events        FileEvent[]
   outbox        RequestOutbox[]
+  merges        TableMerge[]
 
   @@index([userId, createdAt(sort: Desc)], map: "requests_user_created_idx")
   @@map("requests")
+}
+
+/// Several finished tables presented as one.
+///
+/// A merge holds no rows of its own — its members' records stay exactly where
+/// the worker wrote them, and the union happens on read. That is what makes a
+/// merge undoable without moving any data, and what stops the same rows being
+/// counted twice: /api/polling/result drops the members from its list and puts
+/// one entry here in their place, so the batch's table count falls by
+/// `members - 1` and its row count does not move at all.
+model TableMerge {
+  id        String @id
+  requestId String @map("request_id")
+
+  /// Denormalised from the request, so every read is scoped by owner in its
+  /// own WHERE clause rather than after a join.
+  userId String @map("user_id")
+
+  name String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request Request            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  members TableMergeMember[]
+
+  @@index([requestId], map: "table_merges_request_idx")
+  @@map("table_merges")
+}
+
+/// Which tables went into a merge, and in what order their rows appear.
+model TableMergeMember {
+  mergeId String @map("merge_id")
+
+  /// Primary key, not merely unique: a table belongs to at most one merge, and
+  /// that is a database guarantee rather than a check the service remembers.
+  fileSchemaId String @id @map("file_schema_id")
+
+  ord Int
+
+  merge  TableMerge @relation(fields: [mergeId], references: [id], onDelete: Cascade)
+  schema FileSchema @relation(fields: [fileSchemaId], references: [id], onDelete: Cascade)
+
+  @@unique([mergeId, ord], map: "table_merge_members_ord_uq")
+  @@index([mergeId], map: "table_merge_members_merge_idx")
+  @@map("table_merge_members")
 }
 
 /// The unit of work. Carries its own stage, its own lease and its own failure.
@@ -278,9 +324,10 @@ model FileSchema {
   editedAt  DateTime? @map("edited_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  file    File              @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  request Request           @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  result  FileSchemaResult?
+  file        File              @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  request     Request           @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  result      FileSchemaResult?
+  mergeMember TableMergeMember?
 
   @@unique([fileId, tableOrd], map: "file_schemas_file_ord_uq")
   @@index([requestId, shapeHash], map: "file_schemas_shape_idx")

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
 import { readCachedTable, writeCachedTable } from "@/lib/cache"
+import { sourceColumnFor } from "@/lib/csv"
 import type { DensityOption } from "@/lib/density"
 import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
@@ -165,6 +166,10 @@ export default function TablePage({
                   density={density}
                   globalFilter={search}
                   onGlobalFilterChange={setSearch}
+                  // A merged table's rows come from several tables, so the
+                  // first column says which — the same column the CSV and the
+                  // workbook carry.
+                  sourceColumn={sourceColumnFor(table)}
                 />
               </>
             )}

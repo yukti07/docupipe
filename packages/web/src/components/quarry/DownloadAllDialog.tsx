@@ -16,9 +16,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
-import type { Failure, ResultPollResponse } from "@/lib/api/types"
-import { csvFileName, downloadText, toCsv, type Delimiter } from "@/lib/csv"
+import type { Failure, ResultPollResponse, TableData } from "@/lib/api/types"
+import { csvFileName, downloadText, sourceColumnFor, toCsv, type Delimiter } from "@/lib/csv"
 import { formatCount } from "@/lib/format"
+import { downloadBlob, toWorkbook } from "@/lib/xlsx"
+
+/** One file per table, or one workbook holding the lot. */
+type Format = Delimiter | "xlsx"
 
 /**
  * The one that leaves the building, so it says what it contains *before* the
@@ -32,7 +36,7 @@ export function DownloadAllDialog({
   result: ResultPollResponse
 }) {
   const [open, setOpen] = useState(false)
-  const [format, setFormat] = useState<Delimiter>(",")
+  const [format, setFormat] = useState<Format>(",")
   const [preparing, setPreparing] = useState(false)
   const [done, setDone] = useState(false)
   const [failure, setFailure] = useState<Failure | null>(null)
@@ -49,6 +53,40 @@ export function DownloadAllDialog({
         : "No table has finished yet"
       : null
 
+  /**
+   * One workbook, one sheet per table. A merged table is one table here as it
+   * is everywhere else — the result poll has already put it in this list in
+   * place of the tables it was made from — so it is one sheet, not several.
+   */
+  async function writeWorkbook(tables: TableData[]) {
+    if (tables.length === 0) return
+    const blob = await toWorkbook(
+      tables.map((table) => ({
+        name: table.fileName,
+        fields: table.fields,
+        rows: table.rows,
+        sourceColumn: sourceColumnFor(table),
+      })),
+    )
+    downloadBlob(`quarry-${requestId}.xlsx`, blob)
+  }
+
+  function writeSeparateFiles(tables: TableData[], delimiter: Delimiter) {
+    for (const table of tables) {
+      const { text } = toCsv(table, {
+        delimiter,
+        sourceColumn: sourceColumnFor(table)?.value,
+      })
+      downloadText(
+        csvFileName(table.fileName, delimiter === "," ? "csv" : "tsv"),
+        text,
+        delimiter === ","
+          ? "text/csv;charset=utf-8"
+          : "text/tab-separated-values;charset=utf-8",
+      )
+    }
+  }
+
   async function download() {
     setPreparing(true)
     setFailure(null)
@@ -62,14 +100,8 @@ export function DownloadAllDialog({
       const tables = answers.flatMap((answer) =>
         answer.status === "fulfilled" ? [answer.value] : [],
       )
-      for (const table of tables) {
-        const { text } = toCsv(table, { delimiter: format })
-        downloadText(
-          csvFileName(table.fileName, format === "," ? "csv" : "tsv"),
-          text,
-          format === "," ? "text/csv;charset=utf-8" : "text/tab-separated-values;charset=utf-8",
-        )
-      }
+      if (format === "xlsx") await writeWorkbook(tables)
+      else writeSeparateFiles(tables, format)
       setDone(tables.length > 0)
       const missing = answers.length - tables.length
       if (missing > 0) {
@@ -112,7 +144,9 @@ export function DownloadAllDialog({
         <DialogHeader>
           <DialogTitle className="text-[16px]">Download this batch</DialogTitle>
           <DialogDescription className="text-[13px]">
-            One file per table, generated here in your browser from the rows already on screen.
+            {format === "xlsx"
+              ? "One spreadsheet, one sheet per table — generated here in your browser."
+              : "One file per table, generated here in your browser from the rows already on screen."}
           </DialogDescription>
         </DialogHeader>
 
@@ -134,7 +168,8 @@ export function DownloadAllDialog({
             [
               [",", "CSV"],
               ["\t", "Tab separated"],
-            ] as [Delimiter, string][]
+              ["xlsx", "Spreadsheet"],
+            ] as [Format, string][]
           ).map(([value, label]) => (
             <Button
               key={label}
@@ -150,7 +185,11 @@ export function DownloadAllDialog({
           ))}
         </fieldset>
 
-        {preparing && <LoadingState label="Building your files" />}
+        {preparing && (
+          <LoadingState
+            label={format === "xlsx" ? "Building your spreadsheet" : "Building your files"}
+          />
+        )}
         {failure && <FailureMessage failure={failure} />}
         {done && !failure && !preparing && (
           <p role="status" className="text-[12.5px] text-subtle-foreground">

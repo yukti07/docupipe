@@ -135,6 +135,12 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
         className="flex-1"
         panelWidth={460}
         panelLabel="Schema"
+        // Pressing the list shuts the panel here too, the way it does on
+        // Prepare — except while the editor is holding an edit that has not
+        // been saved. Throwing that away on a stray press is the one thing
+        // this convenience must never do, and `draftOn` is the screen's own
+        // record of whether there is anything to throw away.
+        closeOnPressOutside={draftOn === null}
         onClose={close}
         panel={
           openSchema && openGroup ? (
@@ -230,7 +236,15 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
               </div>
             )}
 
-            <WontConvertPanel entries={batch.wontConvert} />
+            <WontConvertPanel
+              entries={batch.wontConvert}
+              onDiscard={async (fileIds) => {
+                // Emptying the batch from here leaves nothing to review, so
+                // the screen goes back to the files rather than to an empty
+                // page of its own.
+                if ((await batch.discardFiles(fileIds)) === 0) router.push("/")
+              }}
+            />
           </div>
         }
       />

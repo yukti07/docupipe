@@ -216,7 +216,7 @@ describe("SchemaEditor", () => {
     expect(screen.getByText("Choose which of the 2 matching tables take this schema.")).toBeVisible()
     // The near-matches are named up front, because taking the lot is the one
     // option that never shows you what it is about to touch.
-    expect(screen.getByText(/All 2 at once\. 1 of them differ by a field\./)).toBeVisible()
+    expect(screen.getByText(/All at once\. 1 of them differ by a field\./)).toBeVisible()
   })
 
   it("writes onto every match when you take the lot", async () => {

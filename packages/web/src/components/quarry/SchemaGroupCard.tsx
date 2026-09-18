@@ -127,6 +127,9 @@ export function SchemaGroupCard({
           disabled={selected}
           aria-label={selected ? "This schema is open in the panel" : "Edit this schema"}
           onClick={() => onOpen(group.schemas[0].schemaId)}
+          // Puts a schema in the panel, so the panel's close-on-press-outside
+          // leaves it alone rather than shutting under the press. See SplitPane.
+          data-panel-open=""
           className="size-9 shrink-0 rounded-[10px] border-primary-tint-border bg-primary-tint text-primary hover:bg-primary-tint-strong hover:text-primary"
         >
           <Pencil aria-hidden className="size-3.5" />
@@ -147,6 +150,7 @@ export function SchemaGroupCard({
                   disabled={!schemaId}
                   onClick={() => schemaId && onOpen(schemaId)}
                   aria-label={`Edit the schema for ${name}`}
+                  data-panel-open=""
                   className="flex w-full min-w-0 items-center gap-2 px-4 py-2.5 text-left hover:bg-muted disabled:pointer-events-none"
                 >
                   <FileText aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

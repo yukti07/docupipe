@@ -137,6 +137,9 @@ export type UpdateSchemaResponse = {
 /* §0.6 */
 export type ConvertResponse = { status: "received"; queued: number; skipped: number }
 
+/** Files taken out of a request for good. `remaining` is what is still live in it. */
+export type DiscardResponse = { status: "ok"; discarded: number; remaining: number }
+
 /* §0.7 */
 export type ConvertStage = "QUEUED" | "EXTRACTING" | "FILLING" | "DONE" | "FAILED"
 export type ResultEntry = {
@@ -180,6 +183,8 @@ export type TableRow = {
   recordId: string
   /** A row the document could not yield at all. Greyed, labelled, reason one click away. */
   failed?: Failure
+  /** Which table this row came from. Set only on a merged table. */
+  sourceFile?: string
   values: Record<string, CellValue>
 }
 
@@ -190,6 +195,8 @@ export type TableData = {
   fileName: string
   tableLabel: string
   pageRange: string | null
+  /** Several tables unioned. Every row then carries `sourceFile`. */
+  merged?: boolean
   fields: SchemaField[]
   rows: TableRow[]
 }
@@ -244,9 +251,32 @@ export type MergeGroup = {
 
 export type MergeConflictDetail = {
   field: string
+  /** Which submitted group the conflict is in — one submit carries several. */
+  shapeHash?: string
   groups: { type: FieldType; tableNames: string[] }[]
 }
 
+/** A merge that exists: its members are gone from the results list, replaced by this. */
+export type MergedTable = {
+  mergeId: string
+  name: string
+  rowCount: number
+  /** How many tables went into it. */
+  tableCount: number
+  shapeHash: string
+}
+
+export type MergeOverview = {
+  /** Finished tables not already in a merge, grouped by the shape they have now. */
+  groups: MergeGroup[]
+  merges: MergedTable[]
+  /** Tables in this batch right now, counting each existing merge as one. */
+  tableCount: number
+}
+
+/** One group in a submit: several of these go up together. */
+export type MergeSubmission = { name: string; schemaIds: string[] }
+
 export type MergeResult =
-  | { ok: true; mergeId: string; name: string; rowCount: number; tableCount: number }
+  | { ok: true; merges: MergedTable[]; tableCount: number }
   | { ok: false; failure: Failure; conflicts: MergeConflictDetail[] }

@@ -48,6 +48,9 @@ export function SchemaEditButton({
             aria-label={label}
             onClick={onOpen}
             data-schema={state}
+            // This button's job is to put a schema in the panel, so the
+            // panel's close-on-press-outside leaves it alone. See SplitPane.
+            data-panel-open=""
             className={cn(
               "relative size-9 shrink-0 overflow-hidden rounded-[10px] bg-card disabled:opacity-100",
               ready && "border-primary-tint-border",

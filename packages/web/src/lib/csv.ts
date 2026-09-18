@@ -13,6 +13,21 @@ function escapeCell(value: string, delimiter: Delimiter): string {
   return needsQuotes ? `"${guarded.replaceAll('"', '""')}"` : guarded
 }
 
+/** The column a merged table gains, named the same in every export and on screen. */
+export const SOURCE_COLUMN = "source_file"
+
+/**
+ * The source column, for a merged table, and nothing for any other. One
+ * definition so the screen, the CSV and the workbook cannot disagree about
+ * whether a table has it or what it is called.
+ */
+export function sourceColumnFor(
+  table: Pick<TableData, "merged">,
+): { header: string; value: (row: TableRow) => string } | undefined {
+  if (!table.merged) return undefined
+  return { header: SOURCE_COLUMN, value: (row) => row.sourceFile ?? "" }
+}
+
 export type CsvSummary = {
   rows: number
   /** Rows the document could not yield at all. Exported, but marked. */

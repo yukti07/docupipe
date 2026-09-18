@@ -2,75 +2,77 @@
 
 import { GatedButton } from "@/components/common/GatedButton"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import type { Failure, MergeGroup } from "@/lib/api/types"
+import type { Failure } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
+
+export type PlannedMerge = { shapeHash: string; groupName: string; name: string; rows: number; tables: number }
 
 /** What you will get, before you press — never a count discovered afterwards. */
 export function MergeSummary({
-  groups,
-  selected,
-  name,
-  onNameChange,
+  planned,
+  /** Tables in the batch right now, counting each existing merge as one. */
+  tableCount,
   blockedReason,
   merging,
   failure,
   onMerge,
 }: {
-  groups: MergeGroup[]
-  selected: string[]
-  name: string
-  onNameChange: (name: string) => void
+  planned: PlannedMerge[]
+  tableCount: number
   blockedReason: string | null
   merging: boolean
   failure: Failure | null
   onMerge: () => void
 }) {
-  const members = groups.flatMap((g) => g.members).filter((m) => selected.includes(m.schemaId))
-  const rows = members.reduce((sum, m) => sum + m.rowCount, 0)
-  const toCheck = members.reduce((sum, m) => sum + m.toCheckCount, 0)
-  const fields = groups.find((g) => g.members.some((m) => selected.includes(m.schemaId)))?.fields ?? []
+  const tablesIn = planned.reduce((sum, p) => sum + p.tables, 0)
+  const rows = planned.reduce((sum, p) => sum + p.rows, 0)
+  // Each merge takes its members out of the list and puts one back.
+  const after = tableCount - tablesIn + planned.length
 
   return (
-    <aside className="flex flex-col gap-4 rounded-xl border border-border-subtle bg-card p-4">
+    <aside className="flex flex-col gap-4 rounded-xl border border-border-subtle bg-card p-4 lg:sticky lg:top-6">
       <div>
         <h2 className="text-[13px] font-medium">What you&apos;ll get</h2>
-        <ul className="mt-2 flex flex-col gap-1 text-[12.5px] tabular-nums text-subtle-foreground">
-          <li>
-            {formatCount(members.length)} {members.length === 1 ? "table" : "tables"} selected
-          </li>
-          <li>{formatCount(rows)} rows in one table</li>
-          {toCheck > 0 && <li className="text-review">{formatCount(toCheck)} cells worth a look</li>}
-          {fields.length > 0 && (
-            <li className="truncate font-mono text-[11.5px]">
-              {fields.map((f) => f.key).join(", ")}
-            </li>
-          )}
-        </ul>
-      </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="merge-name" className="text-[12.5px]">
-          Name this merged table
-        </Label>
-        <Input
-          id="merge-name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder="August invoices"
-          className="h-9 rounded-lg text-[13px]"
-        />
+        {planned.length === 0 ? (
+          <p className="mt-2 text-[12.5px] text-muted-foreground">
+            Tick two or more tables in any group. You can do several groups at once — they
+            are combined separately, one merged table each.
+          </p>
+        ) : (
+          <>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {planned.map((plan) => (
+                <li key={plan.shapeHash} className="text-[12.5px]">
+                  <span className="font-medium">{plan.name || plan.groupName}</span>
+                  <span className="tabular-nums text-subtle-foreground">
+                    {" "}
+                    — {formatCount(plan.tables)} tables, {formatCount(plan.rows)} rows
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[12.5px] tabular-nums text-subtle-foreground">
+              {formatCount(tablesIn)} tables become {formatCount(planned.length)}.{" "}
+              {formatCount(rows)} rows are unchanged.
+            </p>
+            <p className="mt-1 text-[12.5px] font-medium tabular-nums">
+              {formatCount(tableCount)} tables in this batch → {formatCount(after)}
+            </p>
+          </>
+        )}
       </div>
 
       {failure && <FailureMessage failure={failure} />}
 
-      <GatedButton reason={merging ? "Merging now" : blockedReason} onClick={onMerge}>
+      <GatedButton reason={merging ? "Combining now" : blockedReason} onClick={onMerge}>
         {merging
-          ? "Merging…"
-          : members.length === 0
-            ? "Merge"
-            : `Merge ${formatCount(members.length)} ${members.length === 1 ? "table" : "tables"}`}
+          ? "Combining…"
+          : planned.length === 0
+            ? "Combine"
+            : planned.length === 1
+              ? `Combine ${formatCount(tablesIn)} tables`
+              : `Combine ${formatCount(tablesIn)} tables into ${formatCount(planned.length)}`}
       </GatedButton>
     </aside>
   )

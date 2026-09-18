@@ -146,7 +146,9 @@ describe("DataTable", () => {
       <DataTable fields={FIELDS} rows={ROWS} density="comfortable" />,
     )
     const cell = () => container.querySelector("[data-cell]")!
-    const header = () => container.querySelector("th button")!
+    // The density padding is on the header cell's row, which now holds the
+    // sort button and the filter button side by side.
+    const header = () => container.querySelector("th > div")!
 
     expect(cell().classList.contains("py-2")).toBe(true)
     expect(header().classList.contains("py-2.5")).toBe(true)
@@ -155,6 +157,72 @@ describe("DataTable", () => {
     expect(cell().classList.contains("py-1")).toBe(true)
     expect(cell().classList.contains("py-2")).toBe(false)
     expect(header().classList.contains("py-1.5")).toBe(true)
+  })
+
+  it("filters one column without touching the others", async () => {
+    const { container, user } = render(<DataTable fields={FIELDS} rows={ROWS} />)
+    // The chip above the table says the filter's text too, so the rows are
+    // counted in the body rather than on the page.
+    const body = () => within(container.querySelector("tbody")!)
+
+    await user.click(screen.getByRole("button", { name: "Filter invoice_number" }))
+    await user.type(screen.getByLabelText(/Keep rows where/), "INV-2")
+    await user.click(screen.getByRole("button", { name: "Apply" }))
+
+    expect(body().getByText("INV-2")).toBeVisible()
+    expect(body().queryByText("INV-1")).not.toBeInTheDocument()
+  })
+
+  it("composes two column filters, and the search box with them", async () => {
+    const rows: TableRow[] = [
+      { recordId: "a", values: { invoice_number: value("INV-1"), total: value("10.00") } },
+      { recordId: "b", values: { invoice_number: value("INV-1"), total: value("20.00") } },
+      { recordId: "c", values: { invoice_number: value("INV-2"), total: value("20.00") } },
+    ]
+    const { container, user } = render(<DataTable fields={FIELDS} rows={rows} />)
+    const body = () => within(container.querySelector("tbody")!)
+
+    await user.click(screen.getByRole("button", { name: "Filter invoice_number" }))
+    await user.type(screen.getByLabelText(/Keep rows where/), "INV-1")
+    await user.click(screen.getByRole("button", { name: "Apply" }))
+    expect(body().getAllByText("INV-1")).toHaveLength(2)
+
+    await user.click(screen.getByRole("button", { name: "Filter total" }))
+    await user.type(screen.getByLabelText(/Keep rows where/), "20")
+    await user.click(screen.getByRole("button", { name: "Apply" }))
+
+    // One row is left: INV-1 at 20.00.
+    expect(body().getAllByText("INV-1")).toHaveLength(1)
+    expect(body().getByText("20.00")).toBeVisible()
+  })
+
+  it("names the filters in force, and clears one where it is read", async () => {
+    const { user } = render(<DataTable fields={FIELDS} rows={ROWS} />)
+
+    await user.click(screen.getByRole("button", { name: "Filter invoice_number" }))
+    await user.type(screen.getByLabelText(/Keep rows where/), "INV-2")
+    await user.click(screen.getByRole("button", { name: "Apply" }))
+
+    const chip = screen.getByRole("button", { name: "Remove the filter on invoice_number" })
+    expect(chip).toBeVisible()
+
+    await user.click(chip)
+    expect(screen.getByText("INV-1")).toBeVisible()
+
+    expect(
+      screen.queryByRole("button", { name: "Remove the filter on invoice_number" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("blames the filter, not the search box, when a filter is what emptied the table", async () => {
+    const { user } = render(<DataTable fields={FIELDS} rows={ROWS} />)
+
+    await user.click(screen.getByRole("button", { name: "Filter invoice_number" }))
+    await user.type(screen.getByLabelText(/Keep rows where/), "nothing-matches-this")
+    await user.click(screen.getByRole("button", { name: "Apply" }))
+
+    expect(screen.getByText("No rows match")).toBeVisible()
+    expect(screen.getByText(/No row passes the filter above/)).toBeVisible()
   })
 
   it("windows the body once a table is bigger than a hundred rows", () => {

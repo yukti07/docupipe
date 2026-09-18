@@ -12,6 +12,10 @@ export const LiveApi: Pick<
   | "convert"
   | "pollResult"
   | "getTable"
+  | "discardFiles"
+  | "getMergeOverview"
+  | "createMerges"
+  | "deleteMerge"
 > = {
   register: (userId) => postJson<T.RegisterResponse>("/api/register", { userId }),
 
@@ -36,10 +40,25 @@ export const LiveApi: Pick<
   // cookie instead of trusting a field the caller chose.
   getTable: (requestId, schemaId) =>
     postJson<T.TableData>("/api/table", { requestId, schemaId }),
+
+  discardFiles: (userId, requestId, fileIds) =>
+    postJson<T.DiscardResponse>("/api/discard", { userId, requestId, fileIds }),
+
+  getMergeOverview: (requestId) =>
+    postJson<T.MergeOverview>("/api/merge/groups", { requestId }),
+
+  // A refusal is an answer here, not an error: the server replies 200 with
+  // `ok: false` and the conflicts that explain it, because the screen has to
+  // render them beside the selection that caused them.
+  createMerges: (userId, requestId, merges) =>
+    postJson<T.MergeResult>("/api/merge", { userId, requestId, merges }),
+
+  deleteMerge: (userId, requestId, mergeId) =>
+    postJson<{ status: "ok" }>("/api/merge/delete", { userId, requestId, mergeId }),
 }
 
 /**
- * §0.9's remaining four surfaces have no route on the server yet.
+ * §0.9's remaining surfaces have no route on the server yet.
  *
  * They used to fall through to `FixtureApi` in live mode, which meant the table,
  * evidence and merge screens quietly served invented rows that looked exactly
@@ -50,14 +69,9 @@ export const LiveApi: Pick<
  * Deleting an entry here is how a surface goes live: write the route, add it to
  * `LiveApi`, drop it from this object.
  */
-export const NotBuilt: Pick<
-  QuarryApi,
-  "getEvidence" | "getRawText" | "getMergeGroups" | "createMerge"
-> = {
+export const NotBuilt: Pick<QuarryApi, "getEvidence" | "getRawText"> = {
   getEvidence: notBuilt("Evidence"),
   getRawText: notBuilt("Raw text"),
-  getMergeGroups: notBuilt("Combining tables"),
-  createMerge: notBuilt("Combining tables"),
 }
 
 function notBuilt(what: string): () => Promise<never> {

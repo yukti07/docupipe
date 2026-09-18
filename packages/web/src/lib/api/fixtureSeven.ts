@@ -356,6 +356,7 @@ export const FixtureSeven: Pick<
   | "updateSchemas"
   | "convert"
   | "pollResult"
+  | "discardFiles"
 > = {
   register: () => later<T.RegisterResponse>({ status: "ok" }),
 
@@ -458,5 +459,24 @@ export const FixtureSeven: Pick<
     state.resultPolls += 1
     save()
     return later(resultFor(state, userId, requestId))
+  },
+
+  // Really removes them, so `remaining` is the truth rather than a guess: the
+  // screen closes an emptied batch on that number, and a fixture that always
+  // said nought would send every discard back to the workspace.
+  discardFiles: (_userId, requestId, fileIds) => {
+    const state = stateFor(requestId)
+    const before = state.uploaded.length
+    state.uploaded = state.uploaded.filter((file) => !fileIds.includes(file.fileId))
+    // The entries were built from `uploaded`, so they are rebuilt without them.
+    state.entries = null
+    state.entriesFor = 0
+    save()
+
+    return later<T.DiscardResponse>({
+      status: "ok",
+      discarded: before - state.uploaded.length,
+      remaining: state.uploaded.length,
+    })
   },
 }

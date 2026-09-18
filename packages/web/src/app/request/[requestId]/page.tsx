@@ -137,6 +137,16 @@ function Prepare({
   // an empty batch is a promise the workspace cannot keep.
   function discardFailed() {
     if (batch.discardFailed() > 0) return
+    closeBatch()
+  }
+
+  /** The same ending, for files the server has now been told to forget. */
+  async function discardFiles(fileIds: string[]) {
+    if ((await batch.discardFiles(fileIds)) > 0) return
+    closeBatch()
+  }
+
+  function closeBatch() {
     forgetFiles(requestId)
     forgetCached(requestId)
     removeBatch(requestId)
@@ -158,8 +168,17 @@ function Prepare({
   return (
     <>
       <AppHeader userId={userId}>
-        {/* The counts live on the footer now, beside the bar they belong to. */}
-        <p className="truncate text-[13px] font-medium">Prepare</p>
+        {/* The counts live on the footer now, beside the bar they belong to.
+            The way out sits above them: a batch you cannot leave without the
+            browser's Back button is one you are stuck in. */}
+        <div className="min-w-0">
+          <p className="truncate text-[12px] text-muted-foreground">
+            <Link href="/" className="hover:underline">
+              Your workspace
+            </Link>
+          </p>
+          <p className="truncate text-[13px] font-medium">Prepare</p>
+        </div>
       </AppHeader>
 
       <SplitPane
@@ -244,7 +263,7 @@ function Prepare({
               </FileList>
             )}
 
-            <WontConvertPanel entries={batch.wontConvert} />
+            <WontConvertPanel entries={batch.wontConvert} onDiscard={discardFiles} />
           </div>
         }
       />
@@ -471,21 +490,24 @@ function Converting({
                     {formatCount(result.counts.done)} tables
                   </span>
                   <span className="flex items-center gap-2">
-                    {/* Combining tables is available once every file has finished. */}
+                    {/* Combining tables is available once every file has
+                        finished. Not gated on there being two tables left: a
+                        batch that has collapsed into one merged table still
+                        needs a way back to the screen that can undo it. */}
                     <GatedButton
-                      asChild={finished && result.counts.done > 1 ? true : undefined}
+                      asChild={finished && result.counts.done > 0 ? true : undefined}
                       variant="outline"
                       reason={
                         !finished
                           ? "Available once every file has finished"
-                          : result.counts.done < 2
-                            ? "There's only one table to combine"
+                          : result.counts.done === 0
+                            ? "No table finished, so there is nothing to combine"
                             : null
                       }
                       reasonClassName="hidden sm:inline"
                       className="h-8 rounded-lg bg-card text-[12.5px]"
                     >
-                      {finished && result.counts.done > 1 ? (
+                      {finished && result.counts.done > 0 ? (
                         <Link href={`/request/${requestId}/merge`}>Merge</Link>
                       ) : (
                         "Merge"

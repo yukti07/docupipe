@@ -58,6 +58,12 @@ export function SplitPane({
       if (!(target instanceof Element)) return
       if (!rootRef.current?.contains(target)) return
       if (asideRef.current?.contains(target)) return
+      // A control whose whole job is to put something else in the panel. Left
+      // to the rule above, pressing one would close the panel on pointerdown
+      // and its own click would open it again a moment later — two state
+      // changes racing to produce what should be one. Marked controls opt out,
+      // so opening another row is simply opening another row.
+      if (target.closest("[data-panel-open]")) return
       onClose()
     }
     document.addEventListener("pointerdown", onPointerDown)

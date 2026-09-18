@@ -69,6 +69,7 @@ type Action =
   | { type: "restaged"; localIds: string[] }
   | { type: "added"; files: BatchFile[] }
   | { type: "discarded"; localIds: string[] }
+  | { type: "discarded-files"; fileIds: string[] }
   | { type: "schema-poll"; response: SchemaPollResponse }
   | { type: "schema-saved"; schemaIds: string[]; fields: SchemaField[]; versions: Record<string, number> }
 
@@ -212,6 +213,22 @@ function reduce(state: BatchState, action: Action): BatchState {
       return { ...state, files, failure: files.length === 0 ? null : state.failure }
     }
 
+    // A file the server has now marked deleted. It leaves the rows AND the
+    // won't-convert list — those are two views of the same file, and a discard
+    // that cleared only one of them would put the file back on screen under
+    // the other name.
+    case "discarded-files": {
+      const ids = new Set(action.fileIds)
+      const files = state.files.filter((f) => !f.fileId || !ids.has(f.fileId))
+      return {
+        ...state,
+        files,
+        schemas: state.schemas.filter((s) => !ids.has(s.fileId)),
+        wontConvert: state.wontConvert.filter((w) => !ids.has(w.fileId)),
+        failure: files.length === 0 ? null : state.failure,
+      }
+    }
+
     case "schema-poll": {
       const { response } = action
       const known = new Set(state.schemas.map((s) => `${s.fileId}:${s.schemaId}`))
@@ -302,6 +319,13 @@ export type UseBatch = BatchState & {
   retryAllUploads: () => void
   /** Drops every row that will not upload, and answers with how many are left. */
   discardFailed: () => number
+  /**
+   * Takes files out of the request for good — the way out of one that uploaded
+   * and then turned out to hold no table. Answers with how many files the
+   * request still has, so an emptied batch can be closed rather than left as a
+   * card pointing at nothing.
+   */
+  discardFiles: (fileIds: string[]) => Promise<number>
   addFiles: (files: File[]) => void
   saveSchema: (
     schemaId: string,
@@ -488,6 +512,22 @@ export function useBatch(
     return state.files.length - failed.length
   }, [state.files])
 
+  const discardFiles = useCallback<UseBatch["discardFiles"]>(
+    async (fileIds) => {
+      if (!userId || fileIds.length === 0) return state.files.length
+      try {
+        const response = await api.discardFiles(userId, requestId, fileIds)
+        dispatch({ type: "discarded-files", fileIds })
+        return response.remaining
+      } catch {
+        // The row stays. A discard that failed and looked like it worked would
+        // put the file back on the next poll with no explanation.
+        return state.files.length
+      }
+    },
+    [requestId, state.files.length, userId],
+  )
+
   const addFiles = useCallback(
     (files: File[]) => {
       if (!userId || files.length === 0) return
@@ -554,6 +594,7 @@ export function useBatch(
     retryUpload,
     retryAllUploads,
     discardFailed,
+    discardFiles,
     addFiles,
     saveSchema,
     convert,

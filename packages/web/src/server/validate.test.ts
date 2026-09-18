@@ -5,6 +5,8 @@ import {
   array,
   contentTypeFor,
   extensionOf,
+  fileIds,
+  mergeSubmissions,
   requestId,
   safeFilename,
   userId,
@@ -103,5 +105,55 @@ describe("array", () => {
   it("caps how many files one call can carry", () => {
     const many = Array.from({ length: 10 }, (_, i) => `f${i}.pdf`)
     expect(() => array({ files: many }, "files", { max: 5 })).toThrow(ApiFailure)
+  })
+})
+
+describe("fileIds", () => {
+  it("takes a list of server-generated ids", () => {
+    expect(fileIds({ fileIds: ["file_7QfB2aZk", "file_9Xy1LmQp"] })).toEqual([
+      "file_7QfB2aZk",
+      "file_9Xy1LmQp",
+    ])
+  })
+
+  it("refuses an empty list — a discard of nothing is a mistake, not a no-op", () => {
+    expect(() => fileIds({ fileIds: [] })).toThrow(ApiFailure)
+  })
+
+  it("refuses anything that is not in the shape of an id", () => {
+    expect(() => fileIds({ fileIds: ["../../etc/passwd"] })).toThrow(ApiFailure)
+    expect(() => fileIds({ fileIds: [42] })).toThrow(ApiFailure)
+  })
+})
+
+describe("mergeSubmissions", () => {
+  const group = (name: string, schemaIds: string[]) => ({ name, schemaIds })
+
+  it("carries several groups in one submit", () => {
+    const merges = mergeSubmissions({
+      merges: [
+        group("Totals", ["sch_7QfB2aZk", "sch_9Xy1LmQp"]),
+        group("Lines", ["sch_3KdR8vTn", "sch_5WpZ4hCe"]),
+      ],
+    })
+    expect(merges).toHaveLength(2)
+    expect(merges[1].schemaIds).toEqual(["sch_3KdR8vTn", "sch_5WpZ4hCe"])
+  })
+
+  it("refuses a group of one — that is not a merge", () => {
+    expect(() => mergeSubmissions({ merges: [group("Solo", ["sch_7QfB2aZk"])] })).toThrow(
+      ApiFailure,
+    )
+  })
+
+  it("refuses a submit with no groups in it at all", () => {
+    expect(() => mergeSubmissions({ merges: [] })).toThrow(ApiFailure)
+  })
+
+  it("takes an unnamed group, and leaves naming it to the service", () => {
+    const [merge] = mergeSubmissions({
+      merges: [{ schemaIds: ["sch_7QfB2aZk", "sch_9Xy1LmQp"] }],
+    })
+    expect(merge.name).toBe("")
   })
 })

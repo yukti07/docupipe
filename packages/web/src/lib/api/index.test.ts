@@ -10,7 +10,7 @@ describe("the surfaces with no route yet", () => {
     await expect(NotBuilt.getRawText("req_1", "sch_32")).rejects.toMatchObject({
       failure: { class: "not_implemented" },
     })
-    await expect(NotBuilt.getMergeGroups("req_1")).rejects.toMatchObject({
+    await expect(NotBuilt.getEvidence("val_r5_vat")).rejects.toMatchObject({
       failure: { class: "not_implemented" },
     })
   })
@@ -47,22 +47,62 @@ describe("the composed api", () => {
   })
 
   it("refuses an exact-match merge across differing schemas", async () => {
-    const result = await api.createMerge("req_1", ["sch_totals_a", "sch_lines_b"], "August")
+    const result = await FixtureApi.createMerges("user_1", "req_1", [
+      { name: "August", schemaIds: ["sch_totals_a", "sch_lines_b"] },
+    ])
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.conflicts[0].field).toBeTruthy()
   })
 
   it("names the type disagreement first, since it is the specific complaint", async () => {
-    const result = await api.createMerge("req_1", ["sch_totals_a", "sch_lines_b"], "August")
+    const result = await FixtureApi.createMerges("user_1", "req_1", [
+      { name: "August", schemaIds: ["sch_totals_a", "sch_lines_b"] },
+    ])
     if (result.ok) throw new Error("expected the merge to be refused")
     expect(result.conflicts[0].field).toBe("invoice_number")
     expect(result.conflicts[0].groups.map((g) => g.type).sort()).toEqual(["number", "text"])
   })
 
   it("allows a merge across tables that share a shape exactly", async () => {
-    const result = await api.createMerge("req_1", ["sch_31", "sch_totals_a"], "August")
+    const result = await FixtureApi.createMerges("user_1", "req_1", [
+      { name: "August", schemaIds: ["sch_31", "sch_totals_a"] },
+    ])
     expect(result.ok).toBe(true)
-    if (result.ok) expect(result.rowCount).toBeGreaterThan(0)
+    if (result.ok) expect(result.merges[0].rowCount).toBeGreaterThan(0)
+    // A merge takes its members out of the list and puts one table back.
+    if (result.ok) await FixtureApi.deleteMerge("user_1", "req_1", result.merges[0].mergeId)
+  })
+
+  it("carries several groups in one submit, each into its own table", async () => {
+    const result = await FixtureApi.createMerges("user_1", "req_1", [
+      { name: "Totals", schemaIds: ["sch_31", "sch_totals_a"] },
+      { name: "Lines", schemaIds: ["sch_lines_b", "sch_lines_c"] },
+    ])
+    if (!result.ok) throw new Error("expected both merges to be written")
+    expect(result.merges.map((m) => m.name)).toEqual(["Totals", "Lines"])
+
+    // And the members are gone from what the picker may offer next.
+    const overview = await FixtureApi.getMergeOverview("req_1")
+    const offered = overview.groups.flatMap((g) => g.members.map((m) => m.schemaId))
+    expect(offered).not.toContain("sch_31")
+    expect(offered).not.toContain("sch_lines_b")
+    expect(overview.merges).toHaveLength(2)
+
+    for (const merge of result.merges) await FixtureApi.deleteMerge("user_1", "req_1", merge.mergeId)
+  })
+
+  it("opens a merged table as its members' rows, each saying where it came from", async () => {
+    const result = await FixtureApi.createMerges("user_1", "req_1", [
+      { name: "Lines", schemaIds: ["sch_lines_b", "sch_lines_c"] },
+    ])
+    if (!result.ok) throw new Error("expected the merge to be written")
+
+    const table = await FixtureApi.getTable("req_1", result.merges[0].mergeId)
+    expect(table.merged).toBe(true)
+    expect(table.rows).toHaveLength(result.merges[0].rowCount)
+    expect(new Set(table.rows.map((row) => row.sourceFile)).size).toBe(2)
+
+    await FixtureApi.deleteMerge("user_1", "req_1", result.merges[0].mergeId)
   })
 
   it("opens evidence for a cell we have no locator for, and says so plainly", async () => {
