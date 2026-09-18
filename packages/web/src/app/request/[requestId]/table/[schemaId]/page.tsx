@@ -4,19 +4,19 @@ import { ChevronLeft, Search } from "lucide-react"
 import Link from "next/link"
 import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { ErrorState } from "@/components/common/ErrorState"
-import { LoadingState } from "@/components/common/LoadingState"
 import { SplitPane } from "@/components/common/SplitPane"
 import { StatusBadge } from "@/components/common/StatusBadge"
 import { Toolbar } from "@/components/common/Toolbar"
 import { AppHeader } from "@/components/quarry/AppHeader"
-import { DataTable, type DensityOption } from "@/components/quarry/DataTable"
+import { DataTable } from "@/components/quarry/DataTable"
 import { DensityToggle } from "@/components/quarry/DensityToggle"
 import { DownloadTableButton } from "@/components/quarry/DownloadTableButton"
-import { RawTextView } from "@/components/quarry/RawTextView"
+import { TableSkeleton } from "@/components/quarry/TableSkeleton"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api } from "@/lib/api"
+import { readCachedTable, writeCachedTable } from "@/lib/cache"
+import type { DensityOption } from "@/lib/density"
 import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
@@ -31,7 +31,6 @@ export default function TablePage({
   const wanted = use(searchParams).download === "1"
   const [userId, setUserId] = useState<string | null>(null)
 
-  const [view, setView] = useState<"table" | "raw">("table")
   const [search, setSearch] = useState("")
   const [density, setDensity] = useState<DensityOption>("comfortable")
 
@@ -45,7 +44,16 @@ export default function TablePage({
     reload,
   } = useAsync(
     `${requestId}:${schemaId}`,
-    useCallback(() => api.getTable(requestId, schemaId), [requestId, schemaId]),
+    useCallback(async () => {
+      // A table is only openable once its file has finished, and a finished
+      // table's rows never change again. Opening the same one a second time —
+      // to read it, then to download it — asks this browser, not the database.
+      const cached = readCachedTable(requestId, schemaId)
+      if (cached) return cached
+      const fresh = await api.getTable(requestId, schemaId)
+      writeCachedTable(requestId, schemaId, fresh)
+      return fresh
+    }, [requestId, schemaId]),
   )
 
   const markedValueIds = useMemo(
@@ -130,47 +138,34 @@ export default function TablePage({
               />
             )}
 
-            {!table && !failure && <LoadingState label="Loading this table" />}
+            {!table && !failure && <TableSkeleton />}
 
             {table && (
               <>
-                <Tabs value={view} onValueChange={(next) => setView(next as "table" | "raw")}>
-                  <TabsList>
-                    <TabsTrigger value="table">Table</TabsTrigger>
-                    <TabsTrigger value="raw">Raw text</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-
-                {view === "table" ? (
-                  <>
-                    <Toolbar label="Table controls" className="flex-wrap">
-                      <div className="relative min-w-0 flex-1 sm:max-w-xs">
-                        <Search
-                          aria-hidden
-                          className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <Input
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          aria-label="Search this table"
-                          placeholder="Search this table"
-                          className="h-8 rounded-lg pl-8 text-[12.5px]"
-                        />
-                      </div>
-                      <DensityToggle density={density} onChange={setDensity} />
-                    </Toolbar>
-
-                    <DataTable
-                      fields={table.fields}
-                      rows={table.rows}
-                      density={density}
-                      globalFilter={search}
-                      onGlobalFilterChange={setSearch}
+                <Toolbar label="Table controls" className="flex-wrap">
+                  <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                    <Search
+                      aria-hidden
+                      className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                     />
-                  </>
-                ) : (
-                  <RawTextView requestId={requestId} schemaId={schemaId} />
-                )}
+                    <Input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      aria-label="Search this table"
+                      placeholder="Search this table"
+                      className="h-8 rounded-lg pl-8 text-[12.5px]"
+                    />
+                  </div>
+                  <DensityToggle density={density} onChange={setDensity} />
+                </Toolbar>
+
+                <DataTable
+                  fields={table.fields}
+                  rows={table.rows}
+                  density={density}
+                  globalFilter={search}
+                  onGlobalFilterChange={setSearch}
+                />
               </>
             )}
           </div>

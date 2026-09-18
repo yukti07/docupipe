@@ -2,6 +2,7 @@
 
 import { MarkedCellReason } from "@/components/quarry/MarkedCellReason"
 import type { CellValue } from "@/lib/api/types"
+import { CELL_PADDING, type DensityOption } from "@/lib/density"
 import { cn } from "@/lib/utils"
 
 /**
@@ -16,6 +17,7 @@ export function DataCell({
   value,
   failedRow,
   selected,
+  density = "comfortable",
   onOpenEvidence,
   className,
 }: {
@@ -23,6 +25,8 @@ export function DataCell({
   /** The whole row failed; this cell is greyed and labelled with it. */
   failedRow?: boolean
   selected?: boolean
+  /** The cell's padding is what sets the row's height, so density lands here. */
+  density?: DensityOption
   /** Evidence opens from any cell, not only the marked ones. */
   onOpenEvidence?: (valueId: string) => void
   className?: string
@@ -44,7 +48,8 @@ export function DataCell({
   )
 
   const classes = cn(
-    "block w-full px-3 py-2 text-left text-[13px] leading-[1.4]",
+    "block w-full text-left text-[13px] leading-[1.4]",
+    CELL_PADDING[density],
     state === "marked" && "bg-review-cell",
     state === "failed-row" && "text-muted-foreground",
     selected && "outline outline-2 -outline-offset-2 outline-primary",

@@ -141,6 +141,22 @@ describe("DataTable", () => {
     expect(screen.getAllByText("invoice-1044.pdf")).toHaveLength(ROWS.length)
   })
 
+  it("actually packs the rows tighter on compact, header included", () => {
+    const { container, rerender } = render(
+      <DataTable fields={FIELDS} rows={ROWS} density="comfortable" />,
+    )
+    const cell = () => container.querySelector("[data-cell]")!
+    const header = () => container.querySelector("th button")!
+
+    expect(cell().classList.contains("py-2")).toBe(true)
+    expect(header().classList.contains("py-2.5")).toBe(true)
+
+    rerender(<DataTable fields={FIELDS} rows={ROWS} density="compact" />)
+    expect(cell().classList.contains("py-1")).toBe(true)
+    expect(cell().classList.contains("py-2")).toBe(false)
+    expect(header().classList.contains("py-1.5")).toBe(true)
+  })
+
   it("windows the body once a table is bigger than a hundred rows", () => {
     const many: TableRow[] = Array.from({ length: 400 }, (_, i) => ({
       recordId: `r${i}`,

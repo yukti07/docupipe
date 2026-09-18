@@ -1,7 +1,7 @@
 "use client"
 
-import type { DensityOption } from "@/components/quarry/DataTable"
 import { Button } from "@/components/ui/button"
+import type { DensityOption } from "@/lib/density"
 
 export function DensityToggle({
   density,

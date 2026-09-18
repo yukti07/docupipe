@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/common/EmptyState"
 import { DataCell } from "@/components/quarry/DataCell"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { SchemaField, TableRow } from "@/lib/api/types"
+import { CELL_PADDING, HEADER_PADDING, ROW_HEIGHT, type DensityOption } from "@/lib/density"
 import { cn } from "@/lib/utils"
 
 /* v9 registers features and row models explicitly; there is no useReactTable
@@ -46,10 +47,6 @@ const helper = createColumnHelper<typeof features, TableRow>()
 
 /** Past this many rows the body is windowed rather than all mounted. */
 export const VIRTUALIZE_ABOVE = 100
-
-export type DensityOption = "comfortable" | "compact"
-
-const ROW_HEIGHT: Record<DensityOption, number> = { comfortable: 40, compact: 32 }
 
 export type DataTableProps = {
   fields: SchemaField[]
@@ -85,7 +82,12 @@ export function DataTable({
             header: sourceColumn.header,
             sortFn: "text",
             cell: (context) => (
-              <div className="truncate px-3 py-2 font-mono text-[12px] text-subtle-foreground">
+              <div
+                className={cn(
+                  "truncate font-mono text-[12px] text-subtle-foreground",
+                  CELL_PADDING[density],
+                )}
+              >
                 {context.getValue() as string}
               </div>
             ),
@@ -108,6 +110,7 @@ export function DataTable({
                 value={row.values[field.key]}
                 failedRow={Boolean(row.failed)}
                 selected={selectedValueId === row.values[field.key]?.valueId}
+                density={density}
                 onOpenEvidence={onOpenEvidence}
               />
             )
@@ -115,7 +118,7 @@ export function DataTable({
         }),
       ),
     ])
-  }, [fields, onOpenEvidence, selectedValueId, sourceColumn])
+  }, [density, fields, onOpenEvidence, selectedValueId, sourceColumn])
 
   const table = useTable({
     features,
@@ -206,7 +209,10 @@ export function DataTable({
                       type="button"
                       onClick={() => header.column.toggleSorting()}
                       aria-label={`Sort by ${header.column.id}`}
-                      className="flex w-full items-center gap-1.5 px-3 py-2.5 font-mono text-[11.5px] font-medium text-subtle-foreground hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                      className={cn(
+                        "flex w-full items-center gap-1.5 font-mono text-[11.5px] font-medium text-subtle-foreground hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                        HEADER_PADDING[density],
+                      )}
                     >
                       {header.isPlaceholder ? null : <table.FlexRender header={header} />}
                       {/* The indicator stays visible on the sorted column, not only on hover. */}
