@@ -19,7 +19,10 @@ Supported MIME types are `text/csv`, `application/csv`, `application/json`,
 
 Images route to `GeminiImageSchemaDetector`, registered against each image MIME type, and are
 available only when `ZAMP_LLM_ENABLED=true`, `ZAMP_LLM_PROVIDER=gemini`, and `ZAMP_LLM_API_KEY` is
-configured.
+configured. None of the three is set on `quarry-inspect-worker` or `quarry-convert-worker` today, so
+deploying the image alone does not switch this on: with the LLM unconfigured no image detector is
+registered at all and every image fails `format_unsupported`. The key belongs in Secret Manager
+alongside `zamp-database-url`, not in a plain environment variable.
 
 The image is sent to Gemini as image data, not as extracted text. There is no OCR step and no
 Document AI call anywhere in this path. That is deliberate: column alignment, label-to-value

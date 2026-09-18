@@ -20,7 +20,15 @@ docker compose up --build
 
 Workers listen on ports 8080 and 8081. Cloud Run deployment should build from `python/` with either worker Dockerfile, attach a service account (ADC), set `ZAMP_DATABASE_URL` from Secret Manager, and configure Pub/Sub authenticated push subscriptions. Keep Cloud Run `min-instances=0`, `max-instances=1`, and concurrency `1` for the POC.
 
-`cloudbuild.yaml` publishes immutable commit-SHA image tags to Artifact Registry. Deploy each image to its own Cloud Run service in `us-central1`; the existing services are `zamp-schema-detector` and `zamp-data-processor`. Grant each Pub/Sub push service account only Cloud Run Invoker on its matching service. Both workers need GCS read and write access on the `zamptestbucket` upload bucket: the detector writes the detected-schema artifact under `uploads/<requestId>/schema/`, and the processor writes the run summary under `uploads/<requestId>/processing/`.
+`cloudbuild.yaml` publishes immutable commit-SHA image tags to Artifact Registry. `_REGION` selects the registry and defaults to `us-central1`, so a deploy for the live services must override it:
+
+```powershell
+gcloud builds submit . --config cloudbuild.yaml --substitutions _REGION=asia-south1,_TAG=$(git rev-parse HEAD)
+```
+
+**The live services are `quarry-inspect-worker` and `quarry-convert-worker`, in `asia-south1`.** They are the only ones Pub/Sub pushes to — `quarry-file-uploaded-push` and `quarry-convert-requested-push` are the sole push subscriptions on `file-uploaded` and `convert-requested` — and they pull from the `asia-south1` copy of the `zamp` registry. `zamp-schema-detector` and `zamp-data-processor` in `us-central1` still exist but receive no traffic; treat them as abandoned rather than as the deployment target.
+
+Grant each Pub/Sub push service account only Cloud Run Invoker on its matching service. Both workers need GCS read and write access on the `zamptestbucket` upload bucket: the detector writes the detected-schema artifact under `uploads/<requestId>/schema/`, and the processor writes the run summary under `uploads/<requestId>/processing/`.
 
 ## Events
 
