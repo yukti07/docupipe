@@ -4,29 +4,33 @@ import { useCallback } from "react"
 import { api, FIXTURES } from "@/lib/api"
 import type { ResultPollResponse } from "@/lib/api/types"
 import { writeAllowance } from "@/lib/allowance"
+import { writeCachedResult } from "@/lib/cache"
 import { usePoll, type PollState } from "@/lib/polling"
 import { useAsync } from "@/lib/useAsync"
 
 /**
- * The result cadence, pinned for now: one poll immediately, then nothing for
- * two minutes, then every 5 s for ten minutes. A paused batch keeps its own
- * slower beat.
+ * The result cadence: one poll immediately, then every 10 s through the first
+ * two minutes, then every 5 s. A paused batch keeps its own slower beat.
  *
  * The first poll is immediate because the server can already answer it —
  * `pollResult` builds its entries from the schemas and calls anything without
  * a result row QUEUED, so a request queued one second ago comes back as the
- * whole table list, every row waiting. That is a screen. What follows it is
- * not: the worker has minutes of work before any of those stages change, and
- * asking through that only produces a run of identical answers.
+ * whole table list, every row waiting. That is a screen. The two minutes after
+ * it are slower because the worker has minutes of work before any of those
+ * stages change, and asking faster through that only produces a run of
+ * identical answers.
  *
- * On fixtures there is no worker to wait for, so there is nothing to settle.
+ * On fixtures there is no worker to wait for, so there is nothing to wait out.
  * The cadence is the only thing that changes; every state the screen can reach
  * is still reachable.
  */
-export const RESULT_SETTLE_MS = FIXTURES ? 0 : 120_000
+export const RESULT_WARMUP_MS = FIXTURES ? 0 : 120_000
+export const RESULT_WARMUP_POLL_MS = FIXTURES ? 1500 : 10_000
 export const RESULT_POLL_MS = FIXTURES ? 1500 : 5000
-export const RESULT_POLL_MAX = 120
 export const PAUSED_POLL_MS = 30_000
+
+/** Twelve polls through the warm-up, then ten minutes of the steady beat. */
+export const RESULT_POLL_MAX = 12 + 120
 
 export function useResultPolling(
   requestId: string,
@@ -34,14 +38,14 @@ export function useResultPolling(
   options: {
     enabled?: boolean
     /**
-     * What is left of the settle window, read fresh on every response. 0 for a
-     * batch this browser did not just convert — see the Converting screen.
+     * What is left of the warm-up, read fresh on every response. 0 for a batch
+     * this browser did not just convert — see the Converting screen.
      */
-    settleMs?: number
+    warmupMs?: number
     onData?: (data: ResultPollResponse) => void
   } = {},
 ): PollState<ResultPollResponse> {
-  const { enabled = true, settleMs = 0, onData } = options
+  const { enabled = true, warmupMs = 0, onData } = options
 
   return usePoll<ResultPollResponse>(
     useCallback(
@@ -52,14 +56,20 @@ export function useResultPolling(
       enabled: Boolean(userId) && enabled,
       stopWhen: (data) => data.status === "COMPLETED" || data.status === "FAILED",
       maxPolls: RESULT_POLL_MAX,
-      // The settle window sits between the first poll and the second, never in
-      // front of the first — once it has run out it is shorter than the steady
-      // beat and stops counting for anything.
+      // Read after every response, so the beat picks up by itself the moment
+      // what is left of the warm-up runs out.
       intervalFor: (data) =>
-        data?.status === "PAUSED" ? PAUSED_POLL_MS : Math.max(settleMs, RESULT_POLL_MS),
+        data?.status === "PAUSED"
+          ? PAUSED_POLL_MS
+          : warmupMs > 0
+            ? RESULT_WARMUP_POLL_MS
+            : RESULT_POLL_MS,
       onData: (data) => {
         // The header meter is on every screen, but the figure only arrives here.
         writeAllowance(data.allowance)
+        // So leaving this batch for a table and coming back renders what the
+        // screen already knew rather than waiting on a fresh poll.
+        writeCachedResult(requestId, data)
         onData?.(data)
       },
     },

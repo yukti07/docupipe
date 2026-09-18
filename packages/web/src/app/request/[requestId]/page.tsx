@@ -2,14 +2,14 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { use, useEffect, useState } from "react"
+import { use, useEffect, useMemo, useState } from "react"
 import { EmptyState } from "@/components/common/EmptyState"
 import { GatedButton } from "@/components/common/GatedButton"
-import { LoadingState } from "@/components/common/LoadingState"
 import { SplitPane } from "@/components/common/SplitPane"
 import { AppHeader } from "@/components/quarry/AppHeader"
 import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { ConvertBar } from "@/components/quarry/ConvertBar"
+import { ConvertingSkeleton } from "@/components/quarry/ConvertingSkeleton"
 import { DownloadAllDialog } from "@/components/quarry/DownloadAllDialog"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import { FileActions } from "@/components/quarry/FileActions"
@@ -24,13 +24,14 @@ import { TableList } from "@/components/quarry/TableList"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
+import { forgetCached, readCachedResult } from "@/lib/cache"
 import { formatCount } from "@/lib/format"
 import { updateTargetsFor, type SchemaState } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch, type BatchFile } from "@/state/batch"
 import { forgetFiles } from "@/state/batchFiles"
 import {
-  RESULT_SETTLE_MS,
+  RESULT_WARMUP_MS,
   useConversionProbe,
   useResultPolling,
 } from "@/state/result"
@@ -137,6 +138,7 @@ function Prepare({
   function discardFailed() {
     if (batch.discardFailed() > 0) return
     forgetFiles(requestId)
+    forgetCached(requestId)
     removeBatch(requestId)
     router.push("/")
   }
@@ -164,6 +166,7 @@ function Prepare({
         className="flex-1"
         panelWidth={460}
         panelLabel="Schema"
+        closeOnPressOutside
         onClose={() => setOpenFileId(null)}
         panel={
           openFileId && openSchemas.length > 0 ? (
@@ -328,14 +331,14 @@ function FileEditButton({
 
 /**
  * What is left of the two minutes, for a batch this browser converted itself.
- * It holds the *second* poll, not the first — the first has real counts to
- * fetch the moment Convert is pressed.
+ * It slows the polls *after* the first, never the first — that one has real
+ * counts to fetch the moment Convert is pressed.
  */
 function remainingWait(convertedAt?: string): number {
   if (!convertedAt) return 0
   const since = Date.now() - Date.parse(convertedAt)
   if (Number.isNaN(since)) return 0
-  return Math.max(0, RESULT_SETTLE_MS - since)
+  return Math.max(0, RESULT_WARMUP_MS - since)
 }
 
 /** The whole drop as one number, by bytes, so one big file cannot stall the bar. */
@@ -367,10 +370,15 @@ function Converting({
   convertedAt?: string
   onPhase: PhaseWriter
 }) {
+  // What the last poll said, so opening a table and pressing Back to the batch
+  // returns to the screen that was left rather than to a wait for a poll whose
+  // answer this browser already has.
+  const lastKnown = useMemo(() => readCachedResult(requestId), [requestId])
+
   const poll = useResultPolling(requestId, userId, {
     // Recomputed on every render, so the gap after each poll is what is
     // actually left of the window rather than a figure fixed at mount.
-    settleMs: remainingWait(convertedAt),
+    warmupMs: remainingWait(convertedAt),
     onData: (data) => {
       const toCheck = data.files.reduce((sum, f) => sum + (f.toCheckCount ?? 0), 0)
       onPhase(requestId, {
@@ -397,7 +405,7 @@ function Converting({
     },
   })
 
-  const result = poll.data
+  const result = poll.data ?? lastKnown
   const finished = result?.status === "COMPLETED" || result?.status === "FAILED"
   const nothingUsable = result ? result.counts.done === 0 && finished : false
 
@@ -413,7 +421,11 @@ function Converting({
       </AppHeader>
 
       <main className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col gap-6 px-6 py-6">
-        {!poll.settled && <LoadingState label="Converting your files" />}
+        {/* One wait, not two: pressing Convert lands here, and the only thing
+            still missing is the server's first answer. The rows it brings say
+            Waiting with a spinner of their own, so there is no second
+            full-screen state between the button and the batch. */}
+        {!result && !poll.failure && <ConvertingSkeleton />}
         {poll.failure && <ConnectionStatus failure={poll.failure} />}
 
         {/* Out of polls with the batch still running. Saying nothing would

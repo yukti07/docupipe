@@ -49,6 +49,9 @@ export function StatusBadge({
 }) {
   const Icon = icon ?? ICONS[variant]
   const bare = appearance === "bare"
+  // A state that brings its own loader spins whatever tone it is in — a queued
+  // file is muted rather than "working", and still has something in hand.
+  const spinning = Icon === Loader2
   return (
     <span
       className={cn(
@@ -66,7 +69,7 @@ export function StatusBadge({
             bare ? "size-3.5" : "size-3",
             // Bare, the icon carries the colour and the words stay readable.
             bare && variant === "error" && "text-error",
-            variant === "working" && "animate-spin",
+            spinning && "animate-spin",
           )}
           strokeWidth={2}
         />

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 type SplitPaneProps = {
@@ -9,6 +9,15 @@ type SplitPaneProps = {
   panel: ReactNode | null
   panelLabel: string
   panelWidth?: number
+  /**
+   * Close the panel on a press anywhere outside it.
+   *
+   * For a panel opened from a row to look at one thing, where the way out
+   * should be everywhere. Not for a screen whose panel *is* the screen: there
+   * it opens itself, it holds edits that have not been saved, and every press
+   * on the list beside it would throw them away.
+   */
+  closeOnPressOutside?: boolean
   onClose: () => void
   className?: string
 }
@@ -18,9 +27,13 @@ export function SplitPane({
   panel,
   panelLabel,
   panelWidth = 440,
+  closeOnPressOutside,
   onClose,
   className,
 }: SplitPaneProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
+
   useEffect(() => {
     if (!panel) return
     const onKey = (e: KeyboardEvent) => {
@@ -30,11 +43,33 @@ export function SplitPane({
     return () => window.removeEventListener("keydown", onKey)
   }, [panel, onClose])
 
+  useEffect(() => {
+    if (!panel || !closeOnPressOutside) return
+    // The list beside the panel, and nothing else. Anywhere further out is
+    // either chrome that owns its own presses or a select, menu or dialog the
+    // panel opened — Radix renders those at the end of the body, so "outside
+    // the panel" on its own would read a press on one of their options as a
+    // press outside and shut the panel under the control being used.
+    //
+    // Pointerdown rather than click, so pressing another row's open button
+    // shuts the panel before that button reopens it on the row it belongs to.
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target
+      if (!(target instanceof Element)) return
+      if (!rootRef.current?.contains(target)) return
+      if (asideRef.current?.contains(target)) return
+      onClose()
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [panel, closeOnPressOutside, onClose])
+
   return (
-    <div className={cn("flex min-h-0 flex-1 overflow-hidden", className)}>
+    <div ref={rootRef} className={cn("flex min-h-0 flex-1 overflow-hidden", className)}>
       <div className="min-w-0 flex-1 overflow-auto">{list}</div>
       {panel && (
         <aside
+          ref={asideRef}
           role="complementary"
           aria-label={panelLabel}
           // Carried as a custom property rather than an inline width: an inline

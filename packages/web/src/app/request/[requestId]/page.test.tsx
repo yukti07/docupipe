@@ -481,7 +481,7 @@ describe("the prepare screen", () => {
     expect(seen.results).toBe(0)
   })
 
-  it("asks once the moment it converts, then waits out the two minutes", async () => {
+  it("moves straight onto the batch, with one wait rather than two", async () => {
     const seen = mockBackend({
       // What the server answers for a request queued a second ago: every table
       // listed, none of them started. `pollResult` reads them off the schemas,
@@ -507,14 +507,56 @@ describe("the prepare screen", () => {
     await user.click(await screen.findByRole("button", { name: /^Convert/ }))
     await waitFor(() => expect(seen.converts).toBe(1))
 
-    // A screen with the batch on it, not two minutes of a spinner.
+    // A screen with the batch on it, not a second full-page state behind the
+    // button that was already saying Converting.
     expect(await screen.findByText(/0 of 2 done/)).toBeVisible()
     expect(screen.getByText("invoice-1043.pdf")).toBeVisible()
     expect(screen.getByText("invoice-1044.pdf")).toBeVisible()
+    expect(screen.queryByText("Converting your files")).not.toBeInTheDocument()
 
-    // And then it holds: the worker has minutes of work before any of those
+    // The wait moves onto the rows: each one says what it is doing and spins
+    // while it waits its turn.
+    expect(screen.getAllByText("Waiting")).toHaveLength(2)
+
+    // And then it eases off: the worker has minutes of work before any of those
     // stages change, and one poll has already said everything there is to say.
     expect(seen.results).toBe(1)
+  })
+
+  it("comes back to a batch on what it last knew, not on a fresh wait", async () => {
+    // Pressing Back to the batch from a table remounts this screen. The answer
+    // it is about to ask for is one it already has.
+    localStorage.setItem(
+      `quarry.cache.${REQUEST}.result`,
+      JSON.stringify({
+        userId: "usr_1",
+        requestId: REQUEST,
+        status: "CONVERTING",
+        pausedUntil: null,
+        counts: { queued: 1, extracting: 0, filling: 0, done: 1, failed: 0 },
+        rowsSoFar: 22,
+        estimatedSecondsRemaining: null,
+        allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
+        files: [
+          {
+            fileId: "file_1",
+            fileName: "invoice-1044.pdf",
+            schemaId: "sch_32",
+            stage: "DONE",
+            rowCount: 22,
+          },
+          { fileId: "file_2", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+        ],
+      }),
+    )
+    mockBackend()
+    // The poll never answers, so anything on screen came out of the cache.
+    server.use(http.post("/api/polling/result", () => new Promise(() => {})))
+    await renderBatch("converting")
+
+    expect(await screen.findByText("invoice-1044.pdf")).toBeVisible()
+    expect(screen.getByText(/1 of 2 done/)).toBeVisible()
+    expect(screen.getByRole("link", { name: /View/ })).toBeVisible()
   })
 
   it("asks straight away about a batch it did not convert itself", async () => {

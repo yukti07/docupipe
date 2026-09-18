@@ -1,6 +1,6 @@
 "use client"
 
-import { AlignLeft, RotateCw } from "lucide-react"
+import { AlignLeft, Loader2, RotateCw } from "lucide-react"
 import type { ReactNode } from "react"
 import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
@@ -43,7 +43,9 @@ const STATES: Record<
   uploading: { label: "Uploading", variant: "working" },
   failed: { label: "Upload failed", variant: "error" },
   uploaded: { label: "Uploaded", variant: "success" },
-  waiting: { label: "Waiting", variant: "neutral", icon: AlignLeft },
+  // The batch is already being worked through, so a queued file is waiting for
+  // its turn rather than sitting still: it spins, quietly, in the muted tone.
+  waiting: { label: "Waiting", variant: "neutral", icon: Loader2 },
   running: { label: "Running", variant: "working" },
   done: { label: "Done", variant: "success" },
   // Distinct from `failed`, which is an upload that did not land.
