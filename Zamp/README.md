@@ -1,6 +1,6 @@
 # Zamp structured-data POC
 
-Two independently deployable FastAPI workers implement the P0 workflow: schema detection and schema-approved data processing. CSV, JSON, and XLSX are supported. The workers accept authenticated Pub/Sub push envelopes on `POST /` and expose `GET /health`.
+Two independently deployable FastAPI workers implement the P0 workflow: schema detection and schema-approved data processing. CSV, JSON, XLSX and images (PNG, JPEG, WebP, BMP, TIFF, HEIC/HEIF) are supported end to end. An image goes to Gemini twice: once to infer the structure it represents rather than transcribing it, and once more against the approved schema to read the values out. See [docs/data-format-workflow.md](docs/data-format-workflow.md). The workers accept authenticated Pub/Sub push envelopes on `POST /` and expose `GET /health`.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ The browser/API persists each schema edit through `SchemaRepository.persist_user
 
 ## Run locally
 
-Copy `.env.example` to `.env` and `config/config.example.yaml` to `config/config.yaml`. Put secrets such as `ZAMP_DATABASE_URL` only in `.env`; keep non-secret limits and logging settings in `config/config.yaml`. Both files are excluded from Git. For local GCS access, run `gcloud auth application-default login`; Compose mounts the resulting local ADC credential into the containers read-only. Then run:
+Copy `.env.example` to `.env` and `config/config.example.yaml` to `config/config.yaml`. Put secrets such as `ZAMP_DATABASE_URL` and `ZAMP_LLM_API_KEY` only in `.env`; keep non-secret limits and logging settings in `config/config.yaml`. Prompts live in `python/prompts` so they are inside the Docker build context; the default `prompts_dir` resolves against the image's `/app` working directory, so a run started from the repo root needs `ZAMP_SCHEMA_PROMPTS_DIR=python/prompts`. Both files are excluded from Git. For local GCS access, run `gcloud auth application-default login`; Compose mounts the resulting local ADC credential into the containers read-only. Then run:
 
 ```powershell
 docker compose up --build
@@ -50,4 +50,14 @@ py -3.12 -m pip install -r .\python\schema-detector\requirements.txt -r .\python
 py -3.12 .\scripts\smoke_test.py 'C:\path\to\customers.csv'
 ```
 
-The smoke test accepts `.csv`, `.json`, and `.xlsx`, uses `FakeObjectStorage` plus temporary SQLite, detects a candidate schema, creates an immutable approved version, processes the file, and prints the inferred schema, processing counters, and the first three persisted records. No file leaves your computer. Run `pytest` separately for the unit tests.
+For an image, `scripts/image_roundtrip.py` runs the whole feature against one file:
+
+```powershell
+py -3.12 .\scripts\image_roundtrip.py 'C:\path\to\table.png'
+```
+
+It detects the schema, validates it, reads the records back out against that schema, and prints the schema, the records, and the per-record counters. It needs `ZAMP_LLM_API_KEY`, which it reads from `.env`, and it sends that one image to Gemini twice — once for the shape, once for the values. Nothing else leaves your computer and the key is never printed. It uses the real detector, reader, mapper, coercer and validator, but no database: the lease statement in `FileRepository.claim` is PostgreSQL-only, so the durable layer cannot run on SQLite.
+
+`scripts/smoke_test.py` covers the full durable path for `.csv`, `.json` and `.xlsx`. **It is currently broken** — it imports `StructuredRecordRow`, which no longer exists, and calls both pipelines with signatures that predate the lease and outbox work. Repairing it needs a real PostgreSQL rather than the temporary SQLite it assumes.
+
+Run `pytest` separately for the unit tests.

@@ -120,7 +120,9 @@ Credit where due: `pool_pre_ping=True` (`repositories.py:162`) is the right call
 
 ### 🟠 A7. `config.yaml` can never exist in the deployed image → silent fallback to defaults
 
-Both Dockerfiles build from context `python/`, so `config/` and `prompts/` (at repo root) **are not in the build context and cannot be copied**. `ZAMP_CONFIG_PATH` defaults to `config/config.yaml`, and `config.py:54` silently skips a missing file:
+Both Dockerfiles build from context `python/`. `prompts/` **is now inside it** — it was moved to
+`python/prompts` and both Dockerfiles `COPY prompts /app/prompts`, so prompt files do reach the
+image. `config/` is still outside the build context and cannot be copied. `ZAMP_CONFIG_PATH` defaults to `config/config.yaml`, and `config.py:54` silently skips a missing file:
 
 ```python
 if config_path and Path(config_path).exists():

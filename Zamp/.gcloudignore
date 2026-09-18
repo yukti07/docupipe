@@ -1,0 +1,30 @@
+# What Cloud Build is allowed to see. Without this file gcloud uploads the whole
+# directory, which means `.env` and `config/config.yaml` — both real secrets —
+# and the 285MB local virtualenv.
+#
+# The Dockerfiles only COPY `shared/`, `prompts/` and each worker's `src/` and
+# `requirements.txt`, so nothing else needs to be in the context at all.
+
+# Secrets. Never.
+.env
+.env.*
+config/config.yaml
+
+# Local tooling, not build input.
+.venv/
+.git
+.gitignore
+.gcloudignore
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# Not copied by either Dockerfile.
+tests/
+docs/
+scripts/
+docker-compose.yml
+README.md
