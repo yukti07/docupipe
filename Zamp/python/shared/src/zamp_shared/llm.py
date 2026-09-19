@@ -13,7 +13,7 @@ from typing import Any, Callable, TypeVar
 from pydantic import BaseModel
 
 from .domain import Schema, SourceFile
-from .errors import InvalidInput, TransientError
+from .errors import DomainError, InvalidInput, TransientError
 
 log = logging.getLogger(__name__)
 
@@ -41,11 +41,53 @@ class PromptRepository:
 #: Gemini answers 429 on quota and 5xx whenever the model is busy, which is
 #: routine rather than a verdict on the file. Everything else it rejects is a
 #: statement about this request and will be rejected again on redelivery.
+#:
+#: 429 is the one that is only *usually* routine — see `exhausted_quota`.
 RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
 #: Enough of the provider's own words to debug with, bounded so a runaway body
 #: cannot fill the log.
 MAX_LOGGED_ERROR_CHARS = 512
+
+#: Read before truncating for the log, because the quota that was hit is named
+#: near the END of the body — past the prose message and the help links — and
+#: the log bound would cut it off. Still bounded: this is an error path, and a
+#: runaway body should not be held in memory either.
+MAX_ERROR_BODY_CHARS = 64 * 1024
+
+
+def exhausted_quota(body: str) -> str | None:
+    """The id of a per-DAY quota named in a 429, if that is what this is.
+
+    Gemini answers 429 for two unrelated situations and the difference decides
+    what to do with the file:
+
+      * a per-minute rate limit — the next minute works, so the file is still
+        good and belongs back in the queue;
+      * a per-day allowance — nothing changes until it resets, so redelivering
+        only churns the file until it runs out of attempts and settles as
+        `max_attempts`, which tells the reader nothing about what happened.
+
+    Read structurally from the QuotaFailure detail rather than from the prose
+    message, which is not a contract. Anything unparseable answers None: a file
+    must not be settled FAILED on a guess about a body we could not read.
+    """
+    try:
+        details = json.loads(body).get("error", {}).get("details", [])
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return None
+
+    for detail in details:
+        if not isinstance(detail, dict) or not str(detail.get("@type", "")).endswith("QuotaFailure"):
+            continue
+        for violation in detail.get("violations") or []:
+            if not isinstance(violation, dict):
+                continue
+            quota_id = str(violation.get("quotaId", ""))
+            metric = str(violation.get("quotaMetric", ""))
+            if "perday" in quota_id.replace("-", "").lower() or "per_day" in metric.lower():
+                return quota_id or metric
+    return None
 
 
 class GeminiClient:
@@ -96,13 +138,29 @@ class GeminiClient:
             except urllib.error.HTTPError as exc:
                 detail = self._scrub(self._read_error_body(exc))
                 log.warning("gemini request failed", extra={"model": self.model, "status": exc.code,
-                                                            "attempt": attempt + 1, "detail": detail})
+                                                            "attempt": attempt + 1,
+                                                            "detail": detail[:MAX_LOGGED_ERROR_CHARS]})
                 if exc.code not in RETRYABLE_STATUS:
                     # A rejected request is permanent: bad key, bad model name,
                     # payload the API will not take. Retrying spends quota to
                     # arrive at the same answer.
                     raise InvalidInput(f"Gemini rejected the schema detection request with HTTP {exc.code}",
                                        "GEMINI_REQUEST_FAILED") from exc
+
+                quota = exhausted_quota(detail) if exc.code == 429 else None
+                if quota:
+                    # A DomainError settles the file as `provider_quota_exhausted`
+                    # and acknowledges the message; left transient it would be
+                    # redelivered on every lapsed lease until it ran out of
+                    # attempts, saying nothing on screen the whole time. Raised
+                    # before the backoff, because further attempts against an
+                    # allowance that refills tomorrow only spend the lease.
+                    log.warning("gemini daily quota exhausted", extra={"model": self.model,
+                                                                        "quotaId": quota})
+                    raise DomainError(
+                        f"The daily quota for {self.model} has been used up.",
+                        "GEMINI_QUOTA_EXHAUSTED") from exc
+
                 last = exc
             except (urllib.error.URLError, TimeoutError) as exc:
                 log.warning("gemini unreachable", extra={"model": self.model, "attempt": attempt + 1,
@@ -130,8 +188,11 @@ class GeminiClient:
 
     @staticmethod
     def _read_error_body(exc: urllib.error.HTTPError) -> str:
+        # Read past the log bound: the caller truncates for the log, but the
+        # quota that was hit is named near the end of the body and classifying
+        # it needs the whole thing.
         try:
-            return exc.read().decode("utf-8", errors="replace")[:MAX_LOGGED_ERROR_CHARS]
+            return exc.read().decode("utf-8", errors="replace")[:MAX_ERROR_BODY_CHARS]
         except Exception:  # noqa: BLE001
             return ""
 

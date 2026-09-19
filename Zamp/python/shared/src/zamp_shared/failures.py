@@ -41,6 +41,7 @@ _BY_CODE: dict[str, str] = {
     "SCHEMA_INFERENCE_FAILED": "schema_inference_failed",
     # what the model said, when it is the model that failed rather than the file
     "GEMINI_FILE_TOO_LARGE": "too_large",
+    "GEMINI_QUOTA_EXHAUSTED": "provider_quota_exhausted",
     "GEMINI_REQUEST_FAILED": "provider_refused",
     "GEMINI_EMPTY_RESPONSE": "provider_refused",
     "GEMINI_JSON_INVALID": "response_unparseable",
