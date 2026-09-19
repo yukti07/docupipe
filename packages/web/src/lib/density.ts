@@ -19,5 +19,18 @@ export const HEADER_PADDING: Record<DensityOption, string> = {
   compact: "px-2.5 py-1.5",
 }
 
-/** 13px text at 1.4 line-height, plus the padding above and a 1px rule. */
-export const ROW_HEIGHT: Record<DensityOption, number> = { comfortable: 36, compact: 28 }
+/**
+ * Compact sets its text smaller as well as tighter. Padding alone moved the
+ * rows closer together and left every column exactly as wide as before, which
+ * is not what a density control is for.
+ */
+export const CELL_TEXT: Record<DensityOption, string> = {
+  comfortable: "text-[13px]",
+  compact: "text-[12px]",
+}
+
+/** The same sizes as a number, for the column sizer, which measures rather than styles. */
+export const CELL_FONT_PX: Record<DensityOption, number> = { comfortable: 13, compact: 12 }
+
+/** The text at 1.4 line-height, plus the padding above and a 1px rule. */
+export const ROW_HEIGHT: Record<DensityOption, number> = { comfortable: 36, compact: 26 }

@@ -2,7 +2,7 @@
 
 import { MarkedCellReason } from "@/components/quarry/MarkedCellReason"
 import type { CellValue } from "@/lib/api/types"
-import { CELL_PADDING, type DensityOption } from "@/lib/density"
+import { CELL_PADDING, CELL_TEXT, type DensityOption } from "@/lib/density"
 import { cn } from "@/lib/utils"
 
 /**
@@ -18,6 +18,7 @@ export function DataCell({
   failedRow,
   selected,
   density = "comfortable",
+  align = "left",
   onOpenEvidence,
   className,
 }: {
@@ -27,6 +28,8 @@ export function DataCell({
   selected?: boolean
   /** The cell's padding is what sets the row's height, so density lands here. */
   density?: DensityOption
+  /** Figures read right, text reads left. Set from the field's declared type. */
+  align?: "left" | "right"
   /** Evidence opens from any cell, not only the marked ones. */
   onOpenEvidence?: (valueId: string) => void
   className?: string
@@ -41,14 +44,23 @@ export function DataCell({
     )
 
   const content = (
-    <span className="flex min-w-0 flex-col items-start gap-0.5">
-      <span className="w-full truncate text-left">{body}</span>
+    <span
+      className={cn(
+        "flex min-w-0 flex-col gap-0.5",
+        align === "right" ? "items-end" : "items-start",
+      )}
+    >
+      <span className={cn("w-full truncate", align === "right" ? "text-right" : "text-left")}>
+        {body}
+      </span>
       {state === "marked" && value?.reason && <MarkedCellReason reason={value.reason} />}
     </span>
   )
 
   const classes = cn(
-    "block w-full text-left text-[13px] leading-[1.4]",
+    "block w-full leading-[1.4]",
+    CELL_TEXT[density],
+    align === "right" ? "text-right" : "text-left",
     CELL_PADDING[density],
     state === "marked" && "bg-review-cell",
     state === "failed-row" && "text-muted-foreground",
