@@ -184,6 +184,20 @@ function ownEntries(requestId: string, file: Uploaded, index: number): T.SchemaE
         matchingFileCount: 0,
       },
     },
+    // A third worksheet that gave nothing. The file around it converts, so it
+    // is the one case that tells the two kinds of failure apart on screen:
+    // this must name the sheet, not put the workbook in "won't convert".
+    {
+      ...base,
+      schemaId: `sch_${file.fileId}_2`,
+      status: "failed",
+      schema: null,
+      tableLabel: "Sheet 3 · Workings",
+      failure: {
+        class: "extract_empty",
+        message: "This sheet has no columns.",
+      },
+    },
   ]
 }
 

@@ -5,7 +5,7 @@ import logging
 import tempfile
 from pathlib import Path
 
-from zamp_shared.domain import SchemaDetectionContext, SchemaVersion, SourceFile
+from zamp_shared.domain import DetectedTable, SchemaDetectionContext, SchemaVersion, SourceFile
 from zamp_shared.errors import DomainError, TransientError
 from zamp_shared.repositories import Database, EventRepository, FileRepository, OutboxRepository, SchemaRepository
 from zamp_shared.storage import ObjectStorage
@@ -42,31 +42,26 @@ class SchemaPipeline:
         self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
                            event_type="INSPECT_STARTED")
         try:
-            existing = self.schemas.latest_for_file(file_id)
+            existing = self.schemas.versions_for_file(file_id)
             # An edit or an approval means detection already finished; redoing
-            # it would overwrite the shape the user is looking at.
-            version = existing if existing and existing.source != "DETERMINISTIC" else None
+            # it would overwrite the shape the user is looking at. One edited
+            # table settles the whole file, because they were all read from the
+            # same bytes in the same pass.
+            settled = existing if any(v.source != "DETERMINISTIC" for v in existing.values()) else {}
 
             with tempfile.TemporaryDirectory(prefix=f"schema-{file_id}-") as directory:
-                if version is None:
-                    version = existing or self._detect(source, directory)
+                versions = settled or self._detect(source, directory)
+                self._write_artifacts(source, versions, directory)
 
-                artifact = Path(directory) / f"detected-v{version.version}.json"
-                artifact.write_text(json.dumps(version.schema_definition.model_dump(mode="json"), indent=2), encoding="utf-8")
-                # Under the backend's own prefix, so one request's objects sit
-                # together and a lifecycle rule reaches all of them.
-                self.storage.upload_file(source.bucket,
-                                         f"requests/{source.request_id}/schema/{file_id}/detected-v{version.version}.json",
-                                         artifact)
-
-            self.schemas.seed_result(version, len(version.schema_definition.fields))
+            first = versions[min(versions)]
             self.files.update_stage(file_id, "SCHEMA_READY")
             self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
                                event_type="SCHEMA_WRITTEN",
-                               metadata={"tableCount": 1, "fieldCount": len(version.schema_definition.fields)})
+                               metadata={"tableCount": len(versions),
+                                         "fieldCount": len(first.schema_definition.fields)})
 
             self._convert_if_already_requested(source)
-            return version
+            return first
 
         except DomainError as exc:
             self._fail(source, exc.code, str(exc))
@@ -86,7 +81,15 @@ class SchemaPipeline:
             self._fail(source, "INTERNAL", f"{type(exc).__name__}: {exc}")
             raise
 
-    def _detect(self, source: SourceFile, directory: str) -> SchemaVersion:
+    def _detect(self, source: SourceFile, directory: str) -> dict[int, SchemaVersion]:
+        """Every table this file holds, keyed by its ordinal.
+
+        For a workbook that is one entry per worksheet. A sheet that cannot be
+        read settles by itself and the pass continues, because the sheets share
+        nothing but the bytes they came from: one unreadable sheet is not a
+        verdict on the others (§17). The file fails only when no sheet at all
+        produced a shape.
+        """
         path = Path(directory) / source.filename
         self.storage.download_to_file(source.bucket, source.object_key, path)
 
@@ -100,10 +103,68 @@ class SchemaPipeline:
         self.files.set_detected_content_type(source.id, source.mime_type)
 
         context = SchemaDetectionContext(source_file=source, local_path=str(path))
-        schema = self.validator.validate(detector.detect(context))
-        if not schema.fields:
+        tables = detector.detect_tables(context)
+        if not tables:
             raise DomainError("Nothing table-shaped was found in this file.", "EXTRACT_EMPTY")
-        return self.schemas.persist_detected(source.request_id, source.id, schema)
+
+        versions: dict[int, SchemaVersion] = {}
+        failed: list[DetectedTable] = []
+
+        for table in tables:
+            try:
+                if table.schema_definition is None:
+                    raise DomainError(table.failure_detail or "This table is empty.",
+                                      table.failure_code or "EXTRACT_EMPTY")
+
+                schema = self.validator.validate(table.schema_definition)
+                if not schema.fields:
+                    raise DomainError("Nothing table-shaped was found in this table.", "EXTRACT_EMPTY")
+
+                version = self.schemas.persist_detected(source.request_id, source.id, schema,
+                                                        table.ord, table.label)
+                self.schemas.seed_result(source.request_id, source.id, version.file_schema_id,
+                                         len(schema.fields))
+                versions[table.ord] = version
+            except DomainError as exc:
+                failed.append(self._fail_table(source, table, exc.code, str(exc)))
+
+        if not versions:
+            # Nothing was readable, so the file itself is the failure and the
+            # caller settles it. The first sheet's reason is the file's reason.
+            reason = failed[0] if failed else None
+            raise DomainError(reason.failure_detail if reason else "Nothing table-shaped was found in this file.",
+                              reason.failure_code if reason else "EXTRACT_EMPTY")
+        return versions
+
+    def _fail_table(self, source: SourceFile, table: DetectedTable, code: str, detail: str) -> DetectedTable:
+        """Settle one table without touching the others.
+
+        The row is written even though there is no shape in it: a worksheet
+        that yielded nothing has to be visible as a worksheet that yielded
+        nothing, and its ordinal has to stay occupied so the sheets after it
+        keep their own.
+        """
+        schema_id = self.schemas.persist_table(source.request_id, source.id, table.ord, table.label, [])
+        self.schemas.seed_result(source.request_id, source.id, schema_id, 0)
+        self.schemas.set_result_stage(source.id, "FAILED", file_schema_id=schema_id, code=code, detail=detail)
+        self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=source.id,
+                           event_type="TABLE_FAILED", message=detail,
+                           metadata={"code": code, "tableOrd": table.ord, "tableLabel": table.label})
+        log.info("a table settled on its own", extra={"fileId": source.id, "tableOrd": table.ord,
+                                                      "error_code": code})
+        return table.model_copy(update={"failure_code": code, "failure_detail": detail})
+
+    def _write_artifacts(self, source: SourceFile, versions: dict[int, SchemaVersion], directory: str) -> None:
+        """One artifact per table, under the backend's own prefix so a request's
+        objects sit together and a lifecycle rule reaches all of them."""
+        for table_ord, version in sorted(versions.items()):
+            artifact = Path(directory) / f"detected-t{table_ord}-v{version.version}.json"
+            artifact.write_text(json.dumps(version.schema_definition.model_dump(mode="json"), indent=2),
+                                encoding="utf-8")
+            self.storage.upload_file(
+                source.bucket,
+                f"requests/{source.request_id}/schema/{source.id}/table-{table_ord}-v{version.version}.json",
+                artifact)
 
     def _fail(self, source: SourceFile, code: str, detail: str) -> None:
         self.files.update_stage(source.id, "FAILED", code, detail)

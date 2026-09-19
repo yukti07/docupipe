@@ -37,6 +37,14 @@ class ProcessingPipeline:
 
     def execute(self, request_id: str | None, file_id: str, run_id: str | None = None,
                 schema_version_id: str | None = None) -> ProcessingResult | None:
+        """Convert every table of one file, each against its own shape.
+
+        A file is one lease and one download; its tables are separate units of
+        work inside that. For a workbook the tables are its worksheets, and
+        they share nothing but the bytes — so one of them failing settles that
+        table and the loop carries on. The file fails only when none of its
+        tables could be converted (§17).
+        """
         source = self.files.get(request_id, file_id)
 
         if not self.files.claim(file_id, "convert", self.instance_id, self.lease_seconds):
@@ -44,69 +52,149 @@ class ProcessingPipeline:
             log.info("not claimed", extra={"fileId": file_id, "stage": stage})
             return None
 
-        # Resolving the shape and the run can fail, and a failure here has to
-        # settle the file too — otherwise it sits in CONVERTING holding a lease
-        # and only fails five reclaims later, for a reason nobody can see.
         try:
-            version = self._resolve_version(file_id, schema_version_id)
+            tables = self._tables_to_convert(file_id, schema_version_id)
+        except DomainError as exc:
+            self._fail_file(source, exc.code, str(exc))
+            raise
+
+        total = ProcessingResult()
+        failures: list[DomainError] = []
+        # Named on the event, the run and the version belong to ONE table, so
+        # they must not be handed to every table of a multi-table file.
+        single = len(tables) == 1
+
+        try:
+            with tempfile.TemporaryDirectory(prefix=f"processing-{file_id}-") as directory:
+                path = Path(directory) / source.filename
+                self.storage.download_to_file(source.bucket, source.object_key, path)
+
+                for table in tables:
+                    try:
+                        result = self._one_table(source, table, str(path), directory,
+                                                 run_id if single else None,
+                                                 schema_version_id if single else None)
+                        total.records_total += result.records_total
+                        total.records_processed += result.records_processed
+                        total.records_failed += result.records_failed
+                    except DomainError as exc:
+                        failures.append(exc)
+        except DomainError as exc:
+            # Before any table was reached — the object itself is the failure,
+            # and it is the failure of every table this file has.
+            self._fail_file(source, exc.code, str(exc))
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.exception("unhandled processing failure", extra={"fileId": file_id})
+            self._fail_file(source, "PROCESSING_FAILED", f"{type(exc).__name__}: {exc}")
+            raise
+
+        if failures and len(failures) == len(tables):
+            first = failures[0]
+            self.files.update_stage(file_id, "FAILED", first.code, str(first))
+            self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
+                               event_type="FILE_FAILED", message=str(first), metadata={"code": first.code})
+            self.files.refresh_request_status(source.request_id)
+            raise first
+
+        self.files.update_stage(file_id, "COMPLETED")
+        self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
+                           event_type="CONVERT_COMPLETED",
+                           metadata={**total.model_dump(), "tableCount": len(tables),
+                                     "tablesFailed": len(failures)})
+        self.files.refresh_request_status(source.request_id)
+        return total
+
+    def _tables_to_convert(self, file_id: str, schema_version_id: str | None) -> list[dict]:
+        """Which of the file's tables this delivery is for.
+
+        All of them normally. A table that already settled as FAILED is left
+        alone: it has no shape to convert against, and re-failing it would
+        replace the reason it failed with a vaguer one.
+        """
+        tables = [table for table in self.schemas.tables_for_file(file_id) if table.get("stage") != "FAILED"]
+        if not tables:
+            raise DomainError(f"File {file_id} has no table to convert", "SCHEMA_NOT_FOUND")
+
+        if schema_version_id:
+            version = self.schemas.get(schema_version_id)
+            named = [table for table in tables if table["file_schema_id"] == version.file_schema_id]
+            if not named:
+                raise DomainError("Schema version belongs to a different file", "INVALID_PROCESSING_REQUEST")
+            return named
+        return tables
+
+    def _one_table(self, source: SourceFile, table: dict, path: str, directory: str,
+                   run_id: str | None, schema_version_id: str | None) -> ProcessingResult:
+        file_id, schema_id, table_ord = source.id, table["file_schema_id"], int(table["table_ord"])
+
+        try:
+            version = self._resolve_version(file_id, table_ord, schema_version_id)
             run = self._resolve_run(source, version, run_id)
         except DomainError as exc:
-            self.files.update_stage(file_id, "FAILED", exc.code, str(exc))
-            self.schemas.set_result_stage(file_id, "FAILED", code=exc.code, detail=str(exc))
-            self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
-                               event_type="FILE_FAILED", message=str(exc), metadata={"code": exc.code})
-            self.files.refresh_request_status(source.request_id)
+            # Resolving the shape or the run can fail, and a failure here has
+            # to settle the table too — otherwise it sits in QUEUED for a
+            # reason nobody can see.
+            self._fail_table(source, schema_id, table_ord, None, exc.code, str(exc), ProcessingResult())
             raise
 
         if run.status == RunStatus.COMPLETED:
-            self.files.update_stage(file_id, "COMPLETED")
+            self.schemas.set_result_stage(file_id, "DONE", file_schema_id=schema_id,
+                                          row_count=run.records_processed)
             return ProcessingResult(records_total=run.records_total, records_processed=run.records_processed,
                                     records_failed=run.records_failed)
 
         result = ProcessingResult()
         self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
-                           event_type="CONVERT_STARTED", metadata={"runId": run.id, "schemaVersionId": version.id})
+                           event_type="CONVERT_STARTED",
+                           metadata={"runId": run.id, "schemaVersionId": version.id, "tableOrd": table_ord})
         try:
             self.runs.update(run.id, status=RunStatus.RUNNING, started_at=datetime.now(timezone.utc))
-            self.schemas.set_result_stage(file_id, "EXTRACTING")
+            self.schemas.set_result_stage(file_id, "EXTRACTING", file_schema_id=schema_id)
 
-            with tempfile.TemporaryDirectory(prefix=f"processing-{run.id}-") as directory:
-                path = Path(directory) / source.filename
-                self.storage.download_to_file(source.bucket, source.object_key, path)
-                self.schemas.set_result_stage(file_id, "FILLING")
+            # The one place a logical table is resolved to its physical source.
+            # For a format that holds a single table the ordinal is 0 and the
+            # reader ignores it; for a workbook it is the worksheet index, and
+            # the reader refuses rather than guessing when it is absent.
+            bound = source.at_worksheet(table_ord, table.get("table_label"))
 
-                reader = self.registry.resolve(source.mime_type, source.filename)
-                for number, canonical in enumerate(reader.read(source, str(path), version.schema_definition), start=1):
-                    if number > self.max_records:
-                        raise DomainError("Configured record limit exceeded", "MAX_RECORDS_EXCEEDED")
-                    self._one_record(run.id, file_id, number, canonical, version, result)
-                    if number % PROGRESS_EVERY == 0:
-                        self.schemas.set_result_stage(file_id, "FILLING", row_count=result.records_processed)
-                        self.files.renew(file_id, self.instance_id, self.lease_seconds)
+            self.schemas.set_result_stage(file_id, "FILLING", file_schema_id=schema_id)
+            reader = self.registry.resolve(source.mime_type, source.filename)
+            for number, canonical in enumerate(reader.read(bound, path, version.schema_definition), start=1):
+                if number > self.max_records:
+                    raise DomainError("Configured record limit exceeded", "MAX_RECORDS_EXCEEDED")
+                self._one_record(run.id, file_id, table_ord, number, canonical, version, result)
+                if number % PROGRESS_EVERY == 0:
+                    self.schemas.set_result_stage(file_id, "FILLING", file_schema_id=schema_id,
+                                                  row_count=result.records_processed)
+                    self.files.renew(file_id, self.instance_id, self.lease_seconds)
 
-                summary = Path(directory) / "summary.json"
-                summary.write_text(json.dumps(result.model_dump()), encoding="utf-8")
-                self.storage.upload_file(source.bucket,
-                                         f"requests/{source.request_id}/processing/{run.id}/summary.json", summary)
+            summary = Path(directory) / f"summary-{run.id}.json"
+            summary.write_text(json.dumps(result.model_dump()), encoding="utf-8")
+            self.storage.upload_file(source.bucket,
+                                     f"requests/{source.request_id}/processing/{run.id}/summary.json", summary)
 
-            self.schemas.set_result_stage(file_id, "DONE", row_count=result.records_processed)
-            self.runs.update(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(timezone.utc), **result.model_dump())
-            self.files.update_stage(file_id, "COMPLETED")
+            self.schemas.set_result_stage(file_id, "DONE", file_schema_id=schema_id,
+                                          row_count=result.records_processed)
+            self.runs.update(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(timezone.utc),
+                             **result.model_dump())
             self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=file_id,
-                               event_type="CONVERT_COMPLETED", metadata=result.model_dump())
-            self.files.refresh_request_status(source.request_id)
+                               event_type="CONVERT_COMPLETED",
+                               metadata={**result.model_dump(), "runId": run.id, "tableOrd": table_ord})
             return result
 
         except DomainError as exc:
-            self._fail(source, run.id, exc.code, str(exc), result)
+            self._fail_table(source, schema_id, table_ord, run.id, exc.code, str(exc), result)
             raise
         except Exception as exc:  # noqa: BLE001
-            log.exception("unhandled processing failure", extra={"fileId": file_id, "runId": run.id})
-            self._fail(source, run.id, "PROCESSING_FAILED", f"{type(exc).__name__}: {exc}", result)
-            raise
+            log.exception("unhandled table failure", extra={"fileId": file_id, "runId": run.id,
+                                                            "tableOrd": table_ord})
+            failure = DomainError(f"{type(exc).__name__}: {exc}", "PROCESSING_FAILED")
+            self._fail_table(source, schema_id, table_ord, run.id, failure.code, str(failure), result)
+            raise failure from exc
 
-    def _one_record(self, run_id: str, file_id: str, number: int, canonical, version: SchemaVersion,
-                    result: ProcessingResult) -> None:
+    def _one_record(self, run_id: str, file_id: str, table_ord: int, number: int, canonical,
+                    version: SchemaVersion, result: ProcessingResult) -> None:
         result.records_total += 1
         mapped = self.mapper.map(canonical.values, version.schema_definition)
         converted: dict[str, object] = {}
@@ -129,10 +217,11 @@ class ProcessingPipeline:
                                                     field_name=issue.field_name, error_code=issue.error_code,
                                                     message=issue.message, raw_value=issue.raw_value))
         else:
-            self.writer.write_record(file_id, StructuredRecord(processing_run_id=run_id, record_number=number, data=converted))
+            self.writer.write_record(file_id, table_ord,
+                                     StructuredRecord(processing_run_id=run_id, record_number=number, data=converted))
             result.records_processed += 1
 
-    def _resolve_version(self, file_id: str, schema_version_id: str | None) -> SchemaVersion:
+    def _resolve_version(self, file_id: str, table_ord: int, schema_version_id: str | None) -> SchemaVersion:
         """Which shape this run is executed against.
 
         When the event names a version — the richer contract — it is used and
@@ -149,7 +238,7 @@ class ProcessingPipeline:
             if version.file_id != file_id:
                 raise DomainError("Schema version belongs to a different file", "INVALID_PROCESSING_REQUEST")
             return version
-        return self.schemas.snapshot_approved(file_id)
+        return self.schemas.snapshot_approved(file_id, table_ord)
 
     def _resolve_run(self, source: SourceFile, version: SchemaVersion, run_id: str | None):
         if run_id:
@@ -161,10 +250,23 @@ class ProcessingPipeline:
             return run
         return self.runs.open_for(source.request_id, source.id, version.id)
 
-    def _fail(self, source: SourceFile, run_id: str, code: str, detail: str, result: ProcessingResult) -> None:
+    def _fail_table(self, source: SourceFile, schema_id: str, table_ord: int, run_id: str | None,
+                    code: str, detail: str, result: ProcessingResult) -> None:
+        """Settle one table. The file is not touched — whether it failed is a
+        question about all of its tables, and the caller answers it."""
+        self.schemas.set_result_stage(source.id, "FAILED", file_schema_id=schema_id, code=code, detail=detail)
+        if run_id:
+            self.runs.update(run_id, status=RunStatus.FAILED, error_code=code, error_message=detail,
+                             **result.model_dump())
+        self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=source.id,
+                           event_type="TABLE_FAILED", message=detail,
+                           metadata={"code": code, "runId": run_id, "tableOrd": table_ord})
+
+    def _fail_file(self, source: SourceFile, code: str, detail: str) -> None:
+        """Settle the file and every table on it. Only for failures that are
+        genuinely the file's — the object could not be read at all."""
         self.files.update_stage(source.id, "FAILED", code, detail)
         self.schemas.set_result_stage(source.id, "FAILED", code=code, detail=detail)
-        self.runs.update(run_id, status=RunStatus.FAILED, error_code=code, error_message=detail, **result.model_dump())
         self.events.record(request_id=source.request_id, user_id=source.user_id, file_id=source.id,
-                           event_type="FILE_FAILED", message=detail, metadata={"code": code, "runId": run_id})
+                           event_type="FILE_FAILED", message=detail, metadata={"code": code})
         self.files.refresh_request_status(source.request_id)

@@ -35,6 +35,17 @@ class SourceFile(BaseModel):
     mime_type: str
     size_bytes: int = Field(ge=0)
 
+    #: Which table inside the object this reference is to, when the object
+    #: holds more than one. For a workbook that is a worksheet: the index is
+    #: the identity and the name is provenance, because names are not stable
+    #: enough to address by. Both are None for a format that holds one table,
+    #: and a reader that needs them must refuse rather than guess.
+    worksheet_index: int | None = Field(default=None, ge=0)
+    worksheet_name: str | None = None
+
+    def at_worksheet(self, index: int, name: str | None) -> "SourceFile":
+        return self.model_copy(update={"worksheet_index": index, "worksheet_name": name})
+
 
 class SchemaField(BaseModel):
     name: str = Field(min_length=1)
@@ -73,6 +84,26 @@ class Schema(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("schema field names must be unique")
         return self
+
+
+class DetectedTable(BaseModel):
+    """One table found inside a source file, at its own ordinal.
+
+    For a workbook the ordinal IS the worksheet index, which is what makes the
+    identity deterministic under redelivery: `file_schemas` is unique on
+    (file_id, table_ord), so the same sheet always resolves to the same row.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+    ord: int = Field(ge=0)
+    label: str | None = None
+    hidden: bool = False
+    schema_definition: Schema | None = Field(default=None, alias="schema", serialization_alias="schema")
+
+    #: Set instead of a schema when this table alone could not be read. The
+    #: table still exists and still gets a row, so a sheet that yielded nothing
+    #: is visible as such rather than missing.
+    failure_code: str | None = None
+    failure_detail: str | None = None
 
 
 class SchemaVersion(BaseModel):

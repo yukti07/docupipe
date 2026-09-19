@@ -1,4 +1,4 @@
-import type { FieldType, SchemaField } from "@/lib/api/types"
+import type { Failure, FieldType, SchemaEntry, SchemaField } from "@/lib/api/types"
 
 /**
  * Exactly two edits exist: change a field's type, and add a field.
@@ -167,4 +167,66 @@ export function updateTargetsFor(all: SchemaState[], source: SchemaState): Updat
       (a, b) =>
         a.added.length - b.added.length || a.schema.fileName.localeCompare(b.schema.fileName),
     )
+}
+
+/**
+ * Whether every accepted file has settled a shape — one it gave up, or the
+ * reason it has none. Both count: a file that could not be read has finished
+ * being read just as surely as one that was.
+ *
+ * Counted over the files themselves rather than by summing the two lists, so a
+ * file that gave up three tables still counts once.
+ */
+export function allShapesSettled(
+  schemas: { fileId: string }[],
+  wontConvert: { fileId: string }[],
+  acceptedCount: number,
+): boolean {
+  if (acceptedCount === 0) return false
+  const settled = new Set([
+    ...schemas.map((s) => s.fileId),
+    ...wontConvert.map((w) => w.fileId),
+  ])
+  return settled.size >= acceptedCount
+}
+
+/** A file that gave up no table at all. */
+export type FileFailure = { fileId: string; fileName: string; failure: Failure }
+
+/** One table of a file that gave up nothing, while its siblings did. */
+export type TableFailure = FileFailure & { schemaId: string; tableLabel: string }
+
+/**
+ * Which failures are the file's and which are one table's.
+ *
+ * The distinction is the whole of what a workbook needs: an empty worksheet in
+ * an otherwise readable workbook must not read as "this file won't convert",
+ * because the file converts — two of its three sheets are on screen waiting to
+ * be edited. The poll says which by whether the entry names a table.
+ */
+export function partitionFailures(entries: SchemaEntry[]): {
+  files: FileFailure[]
+  tables: TableFailure[]
+} {
+  const files: FileFailure[] = []
+  const tables: TableFailure[] = []
+
+  for (const entry of entries) {
+    if (entry.status !== "failed") continue
+
+    const failure = entry.failure ?? { class: "schema_inference_failed" as const }
+    const common = { fileId: entry.fileId, fileName: entry.fileName, failure }
+
+    if (entry.schemaId) {
+      tables.push({
+        ...common,
+        schemaId: entry.schemaId,
+        tableLabel: entry.tableLabel ?? entry.schema?.tableLabel ?? "",
+      })
+    } else {
+      files.push(common)
+    }
+  }
+
+  return { files, tables }
 }

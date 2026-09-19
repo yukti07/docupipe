@@ -13,7 +13,7 @@ import type {
 import { usePoll } from "@/lib/polling"
 import { stageFiles, type StagedFile } from "@/lib/preflight"
 import { uploadAll, type UploadTask } from "@/lib/upload"
-import type { SchemaState } from "@/lib/schema"
+import { partitionFailures, type SchemaState, type TableFailure } from "@/lib/schema"
 import { readRememberedFiles, rememberFiles, type RememberedFile } from "@/state/batchFiles"
 import { takeStagedFiles } from "@/state/staged"
 
@@ -49,6 +49,13 @@ export type BatchState = {
   schemas: SchemaState[]
   /** Files that settled without a shape. Carried as failures, never as blockers. */
   wontConvert: { fileId: string; fileName: string; failure: Failure }[]
+  /**
+   * Tables that settled without a shape while the file around them did not —
+   * an empty worksheet in a workbook whose other sheets read fine. Kept apart
+   * from `wontConvert` because the file itself converts, and saying otherwise
+   * beside its own editable shapes would contradict the screen.
+   */
+  emptyTables: TableFailure[]
   pending: number
   convertAvailable: boolean
   convertBlockedReason: string | null
@@ -77,6 +84,7 @@ const EMPTY: BatchState = {
   files: [],
   schemas: [],
   wontConvert: [],
+  emptyTables: [],
   pending: 0,
   convertAvailable: false,
   // The server owns this sentence. Until it answers there is nothing honest to
@@ -225,6 +233,7 @@ function reduce(state: BatchState, action: Action): BatchState {
         files,
         schemas: state.schemas.filter((s) => !ids.has(s.fileId)),
         wontConvert: state.wontConvert.filter((w) => !ids.has(w.fileId)),
+        emptyTables: state.emptyTables.filter((t) => !ids.has(t.fileId)),
         failure: files.length === 0 ? null : state.failure,
       }
     }
@@ -237,19 +246,23 @@ function reduce(state: BatchState, action: Action): BatchState {
         .filter((s): s is SchemaState => s !== null)
         .filter((s) => !known.has(`${s.fileId}:${s.schemaId}`))
 
+      // A failure naming a table is that table's; one naming no table is the
+      // file's. A workbook with one empty sheet produces the first kind, and
+      // must not join the list of files that gave up nothing.
+      const { files: fileFailures, tables: tableFailures } = partitionFailures(response.files)
+
       const knownFailures = new Set(state.wontConvert.map((w) => w.fileId))
-      const failures = response.files
-        .filter((entry) => entry.status === "failed" && !knownFailures.has(entry.fileId))
-        .map((entry) => ({
-          fileId: entry.fileId,
-          fileName: entry.fileName,
-          failure: entry.failure ?? { class: "schema_inference_failed" as const },
-        }))
+      const failures = fileFailures.filter((entry) => !knownFailures.has(entry.fileId))
+
+      // Keyed by table, so a workbook can report more than one empty sheet.
+      const knownEmpty = new Set(state.emptyTables.map((t) => `${t.fileId}:${t.schemaId}`))
+      const empties = tableFailures.filter((t) => !knownEmpty.has(`${t.fileId}:${t.schemaId}`))
 
       return {
         ...state,
         schemas: [...state.schemas, ...ready],
         wontConvert: [...state.wontConvert, ...failures],
+        emptyTables: [...state.emptyTables, ...empties],
         pending: response.pending,
         convertAvailable: response.convertAvailable,
         convertBlockedReason: response.convertBlockedReason,

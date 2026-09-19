@@ -530,19 +530,22 @@ class SchemaRepository:
             if not row: raise DomainError(f"Schema version {schema_version_id} was not found", "SCHEMA_NOT_FOUND")
             return self._to_model(row)
 
-    def persist_detected(self, request_id: str, file_id: str, schema: Schema,
-                         table_ord: int = 0, table_label: str | None = None) -> SchemaVersion:
-        """Write the live `file_schemas` row and the v1 history row beside it.
+    def persist_table(self, request_id: str, file_id: str, table_ord: int,
+                      table_label: str | None, fields: list[dict]) -> str:
+        """Write the live `file_schemas` row for one table and return its id.
 
         Idempotent under redelivery: the INSERT carries ON CONFLICT against the
         backend's UNIQUE(file_id, table_ord), so a second delivery finds the
         row rather than raising — a SELECT-then-INSERT has a race in it that
-        redelivery reliably finds.
-        """
-        fields = to_backend_fields(schema)
-        schema_metadata = {"schema": schema.metadata, "canonical_fields": [f.model_dump(mode="json") for f in schema.fields]}
-        hashed = shape_hash(fields)
+        redelivery reliably finds. That constraint is also the whole of the
+        worksheet identity: `table_ord` IS the sheet's index, so the same sheet
+        of the same workbook always resolves to the same row however often the
+        finalisation event arrives.
 
+        `fields` may be empty. A worksheet that yielded no columns still gets a
+        row, because dropping it would renumber every sheet after it and make
+        the identity depend on the content.
+        """
         with self.database.session() as session:
             session.execute(text("""
                 INSERT INTO file_schemas (id, file_id, request_id, table_ord, table_label, version,
@@ -551,13 +554,55 @@ class SchemaRepository:
                         CAST(:fields AS jsonb), CAST(:fields AS jsonb), :shape_hash, now())
                 ON CONFLICT (file_id, table_ord) DO NOTHING
             """), {"id": f"sch_{uuid.uuid4().hex[:16]}", "file_id": file_id, "request_id": request_id,
-                   "table_ord": table_ord, "table_label": table_label or schema.name,
-                   "fields": json.dumps(fields), "shape_hash": hashed})
+                   "table_ord": table_ord, "table_label": table_label,
+                   "fields": json.dumps(fields), "shape_hash": shape_hash(fields)})
 
             parent = session.scalar(select(FileSchemaRow).where(
                 FileSchemaRow.file_id == file_id, FileSchemaRow.table_ord == table_ord))
             if parent is None:
                 raise DomainError("Could not persist the detected schema", "SCHEMA_NOT_FOUND")
+            return parent.id
+
+    def tables_for_file(self, file_id: str) -> list[dict]:
+        """Every table of this file in ordinal order, with the stage of each."""
+        with self.database.session() as session:
+            rows = session.execute(text("""
+                SELECT s.id AS file_schema_id, s.table_ord, s.table_label, s.fields,
+                       r.stage::text AS stage
+                  FROM file_schemas s
+                  LEFT JOIN file_schema_results r ON r.file_schema_id = s.id
+                 WHERE s.file_id = :file_id
+                 ORDER BY s.table_ord
+            """), {"file_id": file_id}).mappings().all()
+            return [dict(row) for row in rows]
+
+    def versions_for_file(self, file_id: str) -> dict[int, SchemaVersion]:
+        """The newest version of each table, keyed by the table's ordinal."""
+        with self.database.session() as session:
+            rows = session.execute(text("""
+                SELECT DISTINCT ON (s.table_ord) s.table_ord, v.id
+                  FROM file_schemas s
+                  JOIN file_schema_versions v ON v.file_schema_id = s.id
+                 WHERE s.file_id = :file_id
+                 ORDER BY s.table_ord, v.version DESC
+            """), {"file_id": file_id}).all()
+
+            versions: dict[int, SchemaVersion] = {}
+            for table_ord, version_id in rows:
+                row = session.get(FileSchemaVersionRow, version_id)
+                if row is not None:
+                    versions[int(table_ord)] = self._to_model(row)
+            return versions
+
+    def persist_detected(self, request_id: str, file_id: str, schema: Schema,
+                         table_ord: int = 0, table_label: str | None = None) -> SchemaVersion:
+        """Write the live `file_schemas` row and the v1 history row beside it."""
+        fields = to_backend_fields(schema)
+        schema_metadata = {"schema": schema.metadata, "canonical_fields": [f.model_dump(mode="json") for f in schema.fields]}
+        schema_id = self.persist_table(request_id, file_id, table_ord, table_label or schema.name, fields)
+
+        with self.database.session() as session:
+            parent = session.get(FileSchemaRow, schema_id)
 
             existing = session.scalar(select(FileSchemaVersionRow)
                                       .where(FileSchemaVersionRow.file_schema_id == parent.id)
@@ -620,7 +665,7 @@ class SchemaRepository:
             return list(session.scalars(select(FileSchemaRow.id).where(FileSchemaRow.file_id == file_id)
                                         .order_by(FileSchemaRow.table_ord)))
 
-    def seed_result(self, version: SchemaVersion, field_count: int) -> None:
+    def seed_result(self, request_id: str, file_id: str, file_schema_id: str, field_count: int) -> None:
         """Seed the per-table result row so the result poll can count it.
 
         QUEUED, not DONE. The five counts the processing screen renders must
@@ -633,14 +678,19 @@ class SchemaRepository:
                                                  field_count, to_check_count, updated_at)
                 VALUES (:file_schema_id, :file_id, :request_id, 'QUEUED', 0, :field_count, 0, now())
                 ON CONFLICT (file_schema_id) DO UPDATE SET field_count = EXCLUDED.field_count, updated_at = now()
-            """), {"file_schema_id": version.file_schema_id, "file_id": version.file_id,
-                   "request_id": version.request_id, "field_count": field_count})
+            """), {"file_schema_id": file_schema_id, "file_id": file_id,
+                   "request_id": request_id, "field_count": field_count})
 
-    def set_result_stage(self, file_id: str, stage: str, *, row_count: int | None = None,
+    def set_result_stage(self, file_id: str, stage: str, *, file_schema_id: str | None = None,
+                         row_count: int | None = None,
                          progress: tuple[str, int, int] | None = None, code: str | None = None,
                          detail: str | None = None) -> None:
-        """Move every table of this file to `stage`. The processor handles one
-        table per file today, so per-file is the honest granularity."""
+        """Move one table of this file to `stage`, or every table when no table
+        is named.
+
+        Both forms are real. A worksheet that failed on its own is one table;
+        a file that could not be downloaded at all failed every table it has,
+        and saying that once is honest rather than lossy."""
         sets = ["stage = CAST(:stage AS table_stage)", "updated_at = now()"]
         params: dict[str, Any] = {"file_id": file_id, "stage": stage}
         if row_count is not None:
@@ -655,8 +705,13 @@ class SchemaRepository:
         if stage == "FAILED":
             sets.append("failure_class = CAST(:failure_class AS failure_class)"); sets.append("failure_detail = :detail")
             params["failure_class"], params["detail"] = failure_class(code), (detail or "")[:2000]
+        where = "file_id = :file_id"
+        if file_schema_id is not None:
+            where += " AND file_schema_id = :file_schema_id"
+            params["file_schema_id"] = file_schema_id
+
         with self.database.session() as session:
-            session.execute(text(f"UPDATE file_schema_results SET {', '.join(sets)} WHERE file_id = :file_id"), params)
+            session.execute(text(f"UPDATE file_schema_results SET {', '.join(sets)} WHERE {where}"), params)
 
     def _persist_next(self, current: SchemaVersion, schema: Schema, source: str, status: SchemaStatus) -> SchemaVersion:
         fields = to_backend_fields(schema)
@@ -729,11 +784,23 @@ class ProcessingRepository:
 
 class RecordRepository:
     def __init__(self, database: Database): self.database, self.tables = database, {}
-    def table_name(self, file_id: str) -> str:
+
+    def table_name(self, file_id: str, table_ord: int) -> str:
+        """Where one TABLE's rows live.
+
+        Named from the file and the table's ordinal, so the two worksheets of a
+        workbook are two physical tables rather than one table holding both.
+        The file's hash stays the stem, which keeps one file's tables visibly
+        related; the ordinal is a readable suffix rather than part of the hash,
+        so the name says which worksheet it is.
+        """
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_id): raise DomainError("Invalid file ID", "INVALID_FILE_ID")
-        return f"structured_records_{hashlib.sha256(file_id.encode()).hexdigest()[:24]}"
-    def _table(self, file_id: str) -> Table:
-        table_name = self.table_name(file_id)
+        if not isinstance(table_ord, int) or table_ord < 0 or table_ord > 999:
+            raise DomainError("Invalid table ordinal", "INVALID_TABLE_ORD")
+        return f"structured_records_{hashlib.sha256(file_id.encode()).hexdigest()[:24]}_t{table_ord}"
+
+    def _table(self, file_id: str, table_ord: int) -> Table:
+        table_name = self.table_name(file_id, table_ord)
         table = self.tables.get(table_name)
         if table is None:
             table = Table(table_name, MetaData(),
@@ -747,8 +814,8 @@ class RecordRepository:
             table.create(self.database.engine, checkfirst=True)
             self.tables[table_name] = table
         return table
-    def write(self, file_id: str, record: StructuredRecord) -> None:
-        table = self._table(file_id)
+    def write(self, file_id: str, table_ord: int, record: StructuredRecord) -> None:
+        table = self._table(file_id, table_ord)
         with self.database.session() as session:
             existing = session.execute(select(table.c.id).where(
                 table.c.processing_run_id == record.processing_run_id,

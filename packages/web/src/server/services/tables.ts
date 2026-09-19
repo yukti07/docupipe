@@ -30,8 +30,9 @@ type Target = {
   original_filename: string
   table_label: string | null
   fields: SchemaFieldJson[]
-  schemas_for_file: number
   record_table: string | null
+  /** Where this file's rows lived before they were split per table. */
+  legacy_record_table: string | null
 }
 
 export type RecordRow = {
@@ -157,10 +158,12 @@ async function loadOne(
   requestId: string,
   schemaId: string,
 ): Promise<{ target: Target; records: RecordRow[]; errors: RecordErrorRow[] }> {
-  // Each file's records live in a table of their own, which the worker names
-  // from sha256(file_id) truncated to 24 hex characters. Deriving that name in
-  // SQL rather than in Node keeps one definition instead of two that can
-  // drift, and `to_regclass` answers "does it exist" in the same round trip.
+  // Each TABLE's records live in a table of their own, which the worker names
+  // from sha256(file_id) truncated to 24 hex characters plus the table's
+  // ordinal. Deriving that name in SQL rather than in Node keeps one
+  // definition instead of two that can drift, and `to_regclass` answers "does
+  // it exist" in the same round trip. The unsuffixed name is asked for too,
+  // because rows written before the split still live under it.
   // Ownership is in the WHERE clause, so there is no path where the row is
   // loaded and the check is forgotten.
   const target = await queryOne<Target>(
@@ -168,11 +171,13 @@ async function loadOne(
             f.original_filename,
             s.table_label,
             s.fields,
-            (SELECT count(*) FROM file_schemas s2 WHERE s2.file_id = s.file_id)
-              AS schemas_for_file,
+            to_regclass('public.structured_records_' ||
+                        substr(encode(sha256(f.id::bytea), 'hex'), 1, 24) ||
+                        '_t' || s.table_ord)::text
+              AS record_table,
             to_regclass('public.structured_records_' ||
                         substr(encode(sha256(f.id::bytea), 'hex'), 1, 24))::text
-              AS record_table
+              AS legacy_record_table
        FROM file_schemas s
        JOIN files f ON f.id = s.file_id
        JOIN requests r ON r.id = s.request_id
@@ -182,42 +187,41 @@ async function loadOne(
 
   if (!target) throw fail("schema_not_found", "We don't have a record of that table.")
 
-  // One record table per FILE, with no column saying which of the file's
-  // tables a record belongs to. For one table per file that is unambiguous;
-  // for a multi-sheet file it is not, and guessing would put another sheet's
-  // rows on screen under this sheet's name.
-  if (Number(target.schemas_for_file) > 1) {
-    throw fail(
-      "merge_incompatible",
-      "This file holds more than one table, and its rows aren't separated by table yet.",
-    )
+  // The per-table name first. Falling back the other way round would make a
+  // workbook converted after the split read its pre-split rows instead.
+  const recordTable = target.record_table ?? target.legacy_record_table
+  if (!recordTable) {
+    throw fail("processing_failed", "No rows were ever written for this table.")
   }
 
-  if (!target.record_table) {
-    throw fail("processing_failed", "No rows were ever written for this file.")
-  }
-
+  // One record table per FILE, holding the rows of every table in it, with no
+  // column saying which. The run is what separates them: the worker opens one
+  // per (table, approved shape), so the rows of one worksheet are exactly the
+  // rows of its run. Finding that run through the FILE is what made all three
+  // sheets of a workbook show the same rows under different names.
   const run = await queryOne<{ id: string }>(
-    `SELECT id FROM processing_runs
-      WHERE file_id = $1 AND status = 'COMPLETED'
-      ORDER BY created_at DESC
+    `SELECT r.id
+       FROM processing_runs r
+       JOIN file_schema_versions v ON v.id = r.file_schema_version_id
+      WHERE v.file_schema_id = $1 AND r.status = 'COMPLETED'
+      ORDER BY r.created_at DESC
       LIMIT 1`,
-    [target.file_id],
+    [schemaId],
   )
 
-  if (!run) throw fail("processing_failed", "This file hasn't finished processing.")
+  if (!run) throw fail("processing_failed", "This table hasn't finished processing.")
 
   // The name came back from `to_regclass`, so it is a table that exists — but
   // it is still interpolated rather than bound, which no other query in this
   // codebase does. The assertion is what makes that safe to read at a glance.
-  if (!/^structured_records_[0-9a-f]{24}$/.test(target.record_table)) {
-    throw fail("internal", "The record table for this file isn't named as expected.")
+  if (!/^structured_records_[0-9a-f]{24}(_t\d{1,3})?$/.test(recordTable)) {
+    throw fail("internal", "The record table for this table isn't named as expected.")
   }
 
   const [records, errors] = await Promise.all([
     query<RecordRow>(
       `SELECT id, record_number, status, data
-         FROM ${target.record_table}
+         FROM ${recordTable}
         WHERE processing_run_id = $1
         ORDER BY record_number
         LIMIT $2`,

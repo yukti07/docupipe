@@ -258,6 +258,24 @@
         "rowCount": 37,
         "toCheckCount": 1,
         "convertedAt": "2026-09-14T10:42:00Z"
+      },
+      {
+        "schemaId": "sch_lines_c",
+        "fileId": "file_7f1",
+        "fileName": "credit-notes-march.xlsx",
+        "tableLabel": "Sheet 2 · Line items",
+        "rowCount": 22,
+        "toCheckCount": 0,
+        "convertedAt": "2026-09-14T10:43:00Z"
+      },
+      {
+        "schemaId": "sch_lines_d",
+        "fileId": "file_7f2",
+        "fileName": "credit-notes-april.xlsx",
+        "tableLabel": "Sheet 2 · Line items",
+        "rowCount": 14,
+        "toCheckCount": 2,
+        "convertedAt": "2026-09-14T10:44:00Z"
       }
     ]
   }

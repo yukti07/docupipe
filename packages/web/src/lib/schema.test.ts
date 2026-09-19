@@ -3,6 +3,8 @@ import type { SchemaField } from "@/lib/api/types"
 import * as schema from "./schema"
 import {
   addField,
+  allShapesSettled,
+  partitionFailures,
   changeFieldType,
   groupByCurrentShape,
   isEdited,
@@ -181,5 +183,75 @@ describe("groupByCurrentShape", () => {
   it("groups on the shape a table has now, not the one it came with", () => {
     const edited = state("sch_2", INVOICE, changeFieldType(INVOICE, "total", "currency"))
     expect(groupByCurrentShape([state("sch_1", INVOICE), edited])).toHaveLength(2)
+  })
+})
+
+describe("allShapesSettled", () => {
+  const shape = (fileId: string) => ({ fileId })
+
+  it("is false while a file has neither a shape nor a reason it has none", () => {
+    expect(allShapesSettled([shape("f1")], [], 3)).toBe(false)
+  })
+
+  it("counts a file that could not give up a shape as settled", () => {
+    expect(allShapesSettled([shape("f1")], [shape("f2")], 2)).toBe(true)
+  })
+
+  it("counts a file once however many tables it gave up", () => {
+    expect(allShapesSettled([shape("f1"), shape("f1"), shape("f1")], [], 2)).toBe(false)
+  })
+
+  it("is false before any file has been accepted, rather than vacuously true", () => {
+    expect(allShapesSettled([], [], 0)).toBe(false)
+  })
+})
+
+describe("partitionFailures", () => {
+  const entry = (fileId: string, schemaId: string | null, cls = "extract_empty") =>
+    ({
+      fileId,
+      fileName: `${fileId}.xlsx`,
+      filePath: "",
+      schemaId,
+      status: "failed" as const,
+      schema: null,
+      failure: { class: cls as "extract_empty", message: "nothing in it" },
+    })
+
+  const ready = (fileId: string, schemaId: string) =>
+    ({
+      fileId,
+      fileName: `${fileId}.xlsx`,
+      filePath: "",
+      schemaId,
+      status: "ready" as const,
+      schema: { tableOrd: 0, tableLabel: "Sheet", version: 1, shapeHash: "h", matchingFileCount: 1, fields: [] },
+    })
+
+  it("keeps a failure that names no table as a failure of the whole file", () => {
+    const { files, tables } = partitionFailures([entry("f1", null)])
+    expect(files.map((f) => f.fileId)).toEqual(["f1"])
+    expect(tables).toEqual([])
+  })
+
+  it("keeps a failure that names a table as a failure of that table alone", () => {
+    const { files, tables } = partitionFailures([entry("f1", "sch_1")])
+    expect(files).toEqual([])
+    expect(tables.map((t) => t.schemaId)).toEqual(["sch_1"])
+  })
+
+  it("separates the empty worksheet of a workbook from its readable ones", () => {
+    const { files, tables } = partitionFailures([
+      ready("f1", "sch_0"),
+      entry("f1", "sch_1"),
+      ready("f1", "sch_2"),
+    ])
+    // The workbook itself converts. Only one of its sheets gave nothing.
+    expect(files).toEqual([])
+    expect(tables.map((t) => t.schemaId)).toEqual(["sch_1"])
+  })
+
+  it("ignores entries that did not fail", () => {
+    expect(partitionFailures([ready("f1", "sch_0")])).toEqual({ files: [], tables: [] })
   })
 })

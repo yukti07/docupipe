@@ -41,11 +41,19 @@ def processor():
     """The data-processor modules the image tests need, imported safely."""
     with _processor_on_path():
         from app.readers.image import GeminiImageReader
+        from app.readers.xlsx import XlsxReader
+        from app.pipeline.processing_pipeline import ProcessingPipeline
+        from app.pipeline.processor_registry import ProcessorRegistry
+        from app.validation.deterministic import DeterministicValidator
         from app.services.record_parser import parse_records
         from app.transformation.coercion import TypeCoercer
         from app.transformation.mapper import SchemaMapper
 
         yield type("Processor", (), {"GeminiImageReader": staticmethod(GeminiImageReader),
+                                     "XlsxReader": staticmethod(XlsxReader),
+                                     "ProcessingPipeline": staticmethod(ProcessingPipeline),
+                                     "ProcessorRegistry": staticmethod(ProcessorRegistry),
+                                     "DeterministicValidator": staticmethod(DeterministicValidator),
                                      "parse_records": staticmethod(parse_records),
                                      "TypeCoercer": staticmethod(TypeCoercer),
                                      "SchemaMapper": staticmethod(SchemaMapper)})

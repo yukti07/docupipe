@@ -66,6 +66,14 @@ export type SchemaRow = {
   fields: SchemaFieldJson[]
   original_fields: SchemaFieldJson[]
   shape_hash: string
+
+  /**
+   * The failure on this TABLE's result row, if it has one. A file can be
+   * perfectly readable and still hold a worksheet that yielded nothing, so
+   * "did this fail" is a question per table as well as per file.
+   */
+  failure_class?: FailureClass | null
+  failure_detail?: string | null
 }
 
 export type SchemaFieldJson = {
@@ -316,11 +324,13 @@ export async function startConverting(
 
 export async function listSchemas(requestId: string): Promise<SchemaRow[]> {
   return query<SchemaRow>(
-    `SELECT id, file_id, request_id, table_ord, table_label, version,
-            fields, original_fields, shape_hash
-       FROM file_schemas
-      WHERE request_id = $1
-      ORDER BY file_id, table_ord`,
+    `SELECT s.id, s.file_id, s.request_id, s.table_ord, s.table_label, s.version,
+            s.fields, s.original_fields, s.shape_hash,
+            r.failure_class, r.failure_detail
+       FROM file_schemas s
+       LEFT JOIN file_schema_results r ON r.file_schema_id = s.id
+      WHERE s.request_id = $1
+      ORDER BY s.file_id, s.table_ord`,
     [requestId],
   )
 }

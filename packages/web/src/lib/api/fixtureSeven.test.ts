@@ -88,7 +88,7 @@ describe("the seven, on fixtures", () => {
     expect(received).toHaveLength(10)
   })
 
-  it("gives at least one file two tables and one no shape at all", async () => {
+  it("gives at least one file several tables and one no shape at all", async () => {
     const requestId = nextRequest()
     await sign(requestId, 10)
     const { entries } = await drainSchemas(requestId)
@@ -97,7 +97,13 @@ describe("the seven, on fixtures", () => {
     for (const entry of entries) perFile.set(entry.fileId, (perFile.get(entry.fileId) ?? 0) + 1)
 
     expect([...perFile.values()].filter((n) => n > 1)).toHaveLength(1)
-    expect(entries.filter((e) => e.status === "failed")).toHaveLength(1)
+
+    // Two kinds of failure, and the screen treats them differently: a file that
+    // gave up nothing names no table, and a worksheet that gave up nothing
+    // names the table it is.
+    const failed = entries.filter((e) => e.status === "failed")
+    expect(failed.filter((e) => e.schemaId === null)).toHaveLength(1)
+    expect(failed.filter((e) => e.schemaId !== null)).toHaveLength(1)
   })
 
   it("counts matching files across the batch, which is what apply-to-all reads", async () => {

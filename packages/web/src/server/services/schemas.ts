@@ -96,6 +96,27 @@ export async function pollSchemas(
     // schemaId. That is how a three-sheet spreadsheet becomes three editable
     // shapes.
     for (const schema of found) {
+      // A table can fail on its own while the file around it is fine: an empty
+      // worksheet in an otherwise readable workbook is exactly that. It is
+      // still addressable, so the screen can name the worksheet that failed
+      // rather than the file.
+      if (schema.failure_class) {
+        entries.push({
+          fileId: file.id,
+          fileName: file.original_filename,
+          filePath: file.object_key ?? "",
+          schemaId: schema.id,
+          status: "failed",
+          schema: null,
+          tableLabel: schema.table_label ?? `table ${schema.table_ord + 1}`,
+          failure: {
+            class: schema.failure_class,
+            message: schema.failure_detail ?? undefined,
+          },
+        })
+        continue
+      }
+
       entries.push({
         fileId: file.id,
         fileName: file.original_filename,

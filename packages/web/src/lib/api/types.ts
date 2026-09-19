@@ -111,6 +111,11 @@ export type SchemaEntry = {
   status: "ready" | "failed"
   schema: TableSchema | null
   failure?: Failure
+  /**
+   * What to call this table when there is no schema to take the name from —
+   * a worksheet that yielded nothing still has to be named as that worksheet.
+   */
+  tableLabel?: string
 }
 export type SchemaPollResponse = {
   userId: string
