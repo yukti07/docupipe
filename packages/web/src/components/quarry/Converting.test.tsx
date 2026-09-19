@@ -311,7 +311,7 @@ describe("ConvertBar", () => {
     expect(screen.queryByRole("link", { name: /Review Schemas/ })).not.toBeInTheDocument()
   })
 
-  it("converts when the gate is met, and carries the count", async () => {
+  it("converts when the gate is met, and puts no count on the button", async () => {
     const onConvert = vi.fn()
     const { user } = render(
       <ConvertBar
@@ -322,7 +322,9 @@ describe("ConvertBar", () => {
         onConvert={onConvert}
       />,
     )
-    await user.click(screen.getByRole("button", { name: "Convert · 41" }))
+    // What is being converted is on the screen above the footer. A figure on
+    // the button is only a second number to reconcile with it.
+    await user.click(screen.getByRole("button", { name: "Convert" }))
     expect(onConvert).toHaveBeenCalledOnce()
   })
 

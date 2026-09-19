@@ -3,7 +3,6 @@
 import { useCallback } from "react"
 import { api, FIXTURES } from "@/lib/api"
 import type { ResultPollResponse } from "@/lib/api/types"
-import { writeAllowance } from "@/lib/allowance"
 import { writeCachedResult } from "@/lib/cache"
 import { usePoll, type PollState } from "@/lib/polling"
 import { useAsync } from "@/lib/useAsync"
@@ -65,8 +64,6 @@ export function useResultPolling(
             ? RESULT_WARMUP_POLL_MS
             : RESULT_POLL_MS,
       onData: (data) => {
-        // The header meter is on every screen, but the figure only arrives here.
-        writeAllowance(data.allowance)
         // So leaving this batch for a table and coming back renders what the
         // screen already knew rather than waiting on a fresh poll.
         writeCachedResult(requestId, data)

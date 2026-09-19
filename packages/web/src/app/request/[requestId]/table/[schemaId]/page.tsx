@@ -1,18 +1,17 @@
 "use client"
 
-import { ChevronLeft, Search } from "lucide-react"
-import Link from "next/link"
+import { Search } from "lucide-react"
 import { use, useCallback, useEffect, useMemo, useState } from "react"
+import { BatchFooter } from "@/components/common/BatchFooter"
+import { BatchShell } from "@/components/common/BatchShell"
 import { ErrorState } from "@/components/common/ErrorState"
-import { SplitPane } from "@/components/common/SplitPane"
 import { StatusBadge } from "@/components/common/StatusBadge"
 import { Toolbar } from "@/components/common/Toolbar"
-import { AppHeader } from "@/components/quarry/AppHeader"
+import { railPhase } from "@/components/quarry/BatchNav"
 import { DataTable } from "@/components/quarry/DataTable"
 import { DensityToggle } from "@/components/quarry/DensityToggle"
 import { DownloadTableButton } from "@/components/quarry/DownloadTableButton"
 import { TableSkeleton } from "@/components/quarry/TableSkeleton"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
 import { readCachedTable, writeCachedTable } from "@/lib/cache"
@@ -21,6 +20,7 @@ import type { DensityOption } from "@/lib/density"
 import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
+import { useWorkspace } from "@/state/workspace"
 
 export default function TablePage({
   params,
@@ -30,13 +30,15 @@ export default function TablePage({
   // The batch screen's per-row Download links straight here with ?download=1,
   // because the rows it would write are the ones this screen has to fetch.
   const wanted = use(searchParams).download === "1"
-  const [userId, setUserId] = useState<string | null>(null)
+  const { batches } = useWorkspace()
 
   const [search, setSearch] = useState("")
   const [density, setDensity] = useState<DensityOption>("comfortable")
 
+  // Nothing on this screen is addressed to a user, but the table request still
+  // has to arrive on a browser the server knows about.
   useEffect(() => {
-    void ensureSession().then(setUserId)
+    void ensureSession()
   }, [])
 
   const {
@@ -70,112 +72,94 @@ export default function TablePage({
   const failedRows = table?.rows.filter((row) => row.failed).length ?? 0
 
   return (
-    <>
-      <AppHeader userId={userId}>
-        <p className="min-w-0 truncate font-mono text-[13px] font-medium">
-          {table?.fileName ?? "Loading the table"}
-        </p>
-      </AppHeader>
-
-      {/* The panel stays shut: the processing worker records no provenance for a
-          value — no page, no box, nothing behind it — so there is nothing for
-          Evidence to show. Cells render as plain text rather than as controls
-          that open an empty drawer. `valueId` is still carried on every cell,
-          so switching this back on is wiring, not a rewrite. */}
-      <SplitPane
-        className="flex-1"
-        panelWidth={440}
-        panelLabel="Evidence"
-        onClose={() => {}}
-        panel={null}
-        list={
-          <div className="flex w-full flex-col gap-4 px-6 py-5">
-            {/* The counts arrive with the table; the way out is here from the
-                first frame, because a screen you cannot leave while it loads
-                is the one you most want to leave. */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
+    <BatchShell
+      requestId={requestId}
+      current="results"
+      done={{ files: true, schemas: true }}
+      // A table only exists on the far side of the gate, so the batch has
+      // converted whether or not this browser watched it happen.
+      phase={railPhase(batches.find((b) => b.requestId === requestId)?.phase ?? "done")}
+      // The filename hangs off Results rather than standing alone, which is
+      // what gives this screen a way back to the batch it belongs to.
+      tail={<span className="font-mono">{table?.fileName ?? "Loading the table"}</span>}
+      footer={
+        // No Back: the rail's Results step is the way out, and a second one
+        // beside Download would only be a second thing to read.
+        <BatchFooter
+          status={
+            table ? (
               <div className="flex flex-wrap items-center gap-2">
-                {table && (
-                  <>
-                    <p className="text-[13px] tabular-nums text-subtle-foreground">
-                      {formatCount(table.rows.length)} rows · {formatCount(table.fields.length)}{" "}
-                      fields
-                      {table.pageRange ? ` · pages ${table.pageRange}` : ""}
-                    </p>
-                    {markedValueIds.length > 0 && (
-                      <StatusBadge variant="review">
-                        {formatCount(markedValueIds.length)} to check
-                      </StatusBadge>
-                    )}
-                    {failedRows > 0 && (
-                      <StatusBadge variant="error">
-                        {formatCount(failedRows)} {failedRows === 1 ? "row" : "rows"} failed
-                      </StatusBadge>
-                    )}
-                  </>
+                <p className="text-[13px] tabular-nums text-subtle-foreground">
+                  {formatCount(table.rows.length)} rows · {formatCount(table.fields.length)} fields
+                  {table.pageRange ? ` · pages ${table.pageRange}` : ""}
+                </p>
+                {markedValueIds.length > 0 && (
+                  <StatusBadge variant="review">
+                    {formatCount(markedValueIds.length)} to check
+                  </StatusBadge>
+                )}
+                {failedRows > 0 && (
+                  <StatusBadge variant="error">
+                    {formatCount(failedRows)} {failedRows === 1 ? "row" : "rows"} failed
+                  </StatusBadge>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  asChild
-                  variant="outline"
-                  className="h-9 gap-1.5 rounded-[10px] bg-card text-[13px]"
-                >
-                  <Link href={`/request/${requestId}`}>
-                    <ChevronLeft aria-hidden className="size-4" />
-                    Back to the batch
-                  </Link>
-                </Button>
-                {table && <DownloadTableButton table={table} auto={wanted} />}
-              </div>
-            </div>
+            ) : undefined
+          }
+          actions={table ? <DownloadTableButton table={table} auto={wanted} /> : undefined}
+        />
+      }
+    >
+      {/* The evidence panel stays shut: the processing worker records no
+          provenance for a value — no page, no box, nothing behind it — so there
+          is nothing for it to show. Cells render as plain text rather than as
+          controls that open an empty drawer. `valueId` is still carried on every
+          cell, so switching this back on is wiring, not a rewrite. */}
+      <div className="flex h-full min-h-0 w-full flex-col gap-4 px-6 py-5">
+        {failure && (
+          <ErrorState
+            title="Couldn't open this table"
+            body="The batch is still there. This one table didn't come back."
+            onRetry={reload}
+            backHref={`/request/${requestId}`}
+          />
+        )}
 
-            {failure && (
-              <ErrorState
-                title="Couldn't open this table"
-                body="The batch is still there. This one table didn't come back."
-                onRetry={reload}
-                backHref={`/request/${requestId}`}
-              />
-            )}
+        {!table && !failure && <TableSkeleton />}
 
-            {!table && !failure && <TableSkeleton />}
-
-            {table && (
-              <>
-                <Toolbar label="Table controls" className="flex-wrap">
-                  <div className="relative min-w-0 flex-1 sm:max-w-xs">
-                    <Search
-                      aria-hidden
-                      className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      aria-label="Search this table"
-                      placeholder="Search this table"
-                      className="h-8 rounded-lg pl-8 text-[12.5px]"
-                    />
-                  </div>
-                  <DensityToggle density={density} onChange={setDensity} />
-                </Toolbar>
-
-                <DataTable
-                  fields={table.fields}
-                  rows={table.rows}
-                  density={density}
-                  globalFilter={search}
-                  onGlobalFilterChange={setSearch}
-                  // A merged table's rows come from several tables, so the
-                  // first column says which — the same column the CSV and the
-                  // workbook carry.
-                  sourceColumn={sourceColumnFor(table)}
+        {table && (
+          <>
+            <Toolbar label="Table controls" className="flex-wrap">
+              <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                 />
-              </>
-            )}
-          </div>
-        }
-      />
-    </>
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  aria-label="Search this table"
+                  placeholder="Search this table"
+                  className="h-8 rounded-lg pl-8 text-[12.5px]"
+                />
+              </div>
+              <DensityToggle density={density} onChange={setDensity} />
+            </Toolbar>
+
+            <DataTable
+              fields={table.fields}
+              rows={table.rows}
+              density={density}
+              globalFilter={search}
+              onGlobalFilterChange={setSearch}
+              // A merged table's rows come from several tables, so the
+              // first column says which — the same column the CSV and the
+              // workbook carry.
+              sourceColumn={sourceColumnFor(table)}
+            />
+          </>
+        )}
+      </div>
+    </BatchShell>
   )
 }

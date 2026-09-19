@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, ChevronDown, ChevronRight, FileText, Pencil, Sparkles } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, FileText, Pencil, Plus, Sparkles } from "lucide-react"
 import { useState } from "react"
 import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge"
 import { FIELD_TYPE_LABELS } from "@/components/quarry/FieldTypeSelect"
@@ -46,11 +46,14 @@ export function SchemaGroupCard({
   className?: string
 }) {
   const [open, setOpen] = useState(Boolean(defaultOpen))
+  // Folding the card shut forgets that its files were expanded: reopening it
+  // should look the way it looked the first time, not the way it was left.
+  const [all, setAll] = useState(false)
 
   const tables = group.schemas.length
   const files = [...new Set(group.schemas.map((s) => s.fileName))]
   const status = STATUS[schemaStatus(group.schemas, unsaved)]
-  const shown = files.slice(0, NAMED)
+  const shown = all ? files : files.slice(0, NAMED)
   const rest = files.length - shown.length
 
   return (
@@ -67,7 +70,10 @@ export function SchemaGroupCard({
       <div className="flex items-start gap-3 px-4 py-3.5">
         <button
           type="button"
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            setOpen(!open)
+            setAll(false)
+          }}
           aria-expanded={open}
           aria-label={
             open ? `Hide the files with this schema` : `Show the files with this schema`
@@ -128,7 +134,7 @@ export function SchemaGroupCard({
           aria-label={selected ? "This schema is open in the panel" : "Edit this schema"}
           onClick={() => onOpen(group.schemas[0].schemaId)}
           // Puts a schema in the panel, so the panel's close-on-press-outside
-          // leaves it alone rather than shutting under the press. See SplitPane.
+          // leaves it alone rather than shutting under the press. See BatchShell.
           data-panel-open=""
           className="size-9 shrink-0 rounded-[10px] border-primary-tint-border bg-primary-tint text-primary hover:bg-primary-tint-strong hover:text-primary"
         >
@@ -160,8 +166,18 @@ export function SchemaGroupCard({
             )
           })}
           {rest > 0 && (
-            <li className="px-4 py-2.5 text-[12px] tabular-nums text-muted-foreground">
-              and {formatCount(rest)} more
+            // The count was a label, which made the files it stood for
+            // unreachable — the only way to open one of them was from its own
+            // row on the batch screen.
+            <li className="min-w-0">
+              <button
+                type="button"
+                onClick={() => setAll(true)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12px] tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Plus aria-hidden className="size-3.5 shrink-0" />
+                and {formatCount(rest)} more
+              </button>
             </li>
           )}
         </ul>

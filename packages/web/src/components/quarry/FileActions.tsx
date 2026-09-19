@@ -15,6 +15,7 @@ export function FileActions({
   fileCount,
   totalBytes,
   failedCount,
+  frozen,
   onRetryAll,
   onDiscardFailed,
   onAddFiles,
@@ -23,6 +24,8 @@ export function FileActions({
   totalBytes: number
   /** Retrying and discarding only appear when there is something to act on. */
   failedCount: number
+  /** The batch has converted: the drop is a record now, and cannot be changed. */
+  frozen?: boolean
   onRetryAll: () => void
   onDiscardFailed: () => void
   onAddFiles: (files: File[]) => void
@@ -32,7 +35,7 @@ export function FileActions({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        {failedCount > 0 && (
+        {!frozen && failedCount > 0 && (
           <>
             <Button
               type="button"
@@ -54,30 +57,34 @@ export function FileActions({
           </>
         )}
 
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => input.current?.click()}
-          className="h-9 gap-1.5 rounded-[10px] bg-card text-[13px]"
-        >
-          <Upload aria-hidden className="size-3.5" />
-          Drop more files
-        </Button>
+        {!frozen && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => input.current?.click()}
+              className="h-9 gap-1.5 rounded-[10px] bg-card text-[13px]"
+            >
+              <Upload aria-hidden className="size-3.5" />
+              Drop more files
+            </Button>
 
-        {/* The real input, so the keyboard reaches everything the mouse does. */}
-        <input
-          ref={input}
-          type="file"
-          multiple
-          accept={ACCEPT_ATTRIBUTE}
-          aria-label="Drop more files"
-          className="sr-only"
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? [])
-            event.target.value = ""
-            if (files.length > 0) onAddFiles(files)
-          }}
-        />
+            {/* The real input, so the keyboard reaches everything the mouse does. */}
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept={ACCEPT_ATTRIBUTE}
+              aria-label="Drop more files"
+              className="sr-only"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                event.target.value = ""
+                if (files.length > 0) onAddFiles(files)
+              }}
+            />
+          </>
+        )}
       </div>
 
       <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground">

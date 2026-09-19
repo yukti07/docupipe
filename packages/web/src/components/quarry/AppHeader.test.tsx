@@ -33,43 +33,24 @@ describe("AllowanceMeter", () => {
 })
 
 describe("AppHeader", () => {
-  it("says plainly that the link carries the whole workspace", async () => {
-    const { user } = render(<AppHeader userId="usr_abc" />)
-    await user.click(screen.getByRole("button", { name: /Workspace link/ }))
-    expect(screen.getByText(/lives in this browser/i)).toBeVisible()
-    expect(screen.getByText(/anyone who holds it can open every batch/i)).toBeVisible()
-  })
-
-  it("offers the workspace url with the user id on it", async () => {
-    const { user } = render(<AppHeader userId="usr_abc" />)
-    await user.click(screen.getByRole("button", { name: /Workspace link/ }))
-    expect(screen.getByLabelText("Workspace link")).toHaveValue(
-      `${window.location.origin}/?w=usr_abc`,
-    )
-  })
-
-  it("copies that url to the clipboard", async () => {
-    const { user } = render(<AppHeader userId="usr_abc" />)
-    await user.click(screen.getByRole("button", { name: /Workspace link/ }))
-    await user.click(screen.getByRole("button", { name: "Copy" }))
-    await expect(navigator.clipboard.readText()).resolves.toBe(
-      `${window.location.origin}/?w=usr_abc`,
-    )
-    expect(screen.getByRole("button", { name: "Copied" })).toBeVisible()
-  })
-
-  it("shows no meter before a batch has ever reported an allowance", () => {
-    render(<AppHeader userId="usr_abc" />)
-    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
-  })
-
-  it("shows the live allowance when a poll has one", () => {
+  it("is the product's name and the screen's own bar, and nothing else", () => {
     render(
-      <AppHeader
-        userId="usr_abc"
-        allowance={{ used: 1840, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" }}
-      />,
+      <AppHeader>
+        <div data-testid="rail">rail</div>
+      </AppHeader>,
     )
-    expect(screen.getByText("1,840 / 5,000")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Quarry" })).toHaveAttribute("href", "/")
+    expect(screen.getByTestId("rail")).toBeVisible()
+  })
+
+  it("carries no allowance meter — the figure belongs beside the pause it explains", () => {
+    render(<AppHeader />)
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Pages today/i)).not.toBeInTheDocument()
+  })
+
+  it("carries no workspace link", () => {
+    render(<AppHeader />)
+    expect(screen.queryByRole("button", { name: /Workspace link/ })).not.toBeInTheDocument()
   })
 })

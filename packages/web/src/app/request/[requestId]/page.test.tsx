@@ -141,9 +141,12 @@ function mockBackend({
   return seen
 }
 
-async function renderBatch(phase?: WorkspaceBatch["phase"]) {
+async function renderBatch(
+  phase?: WorkspaceBatch["phase"],
+  query: Record<string, string> = {},
+) {
   const params = Promise.resolve({ requestId: REQUEST })
-  const searchParams = Promise.resolve({})
+  const searchParams = Promise.resolve(query)
   if (phase) {
     localStorage.setItem(
       "quarry.workspace",
@@ -406,6 +409,35 @@ describe("the prepare screen", () => {
     expect(screen.queryByRole("button", { name: /Open schema|Loading schema/ })).not.toBeInTheDocument()
   })
 
+  it("names a worksheet that gave nothing, without failing the workbook", async () => {
+    mockBackend({
+      entries: [
+        schemaEntry({ schemaId: "sch_1", schema: { ...schemaEntry().schema!, tableLabel: "Transactions" } }),
+        schemaEntry({ schemaId: "sch_2", schema: { ...schemaEntry().schema!, tableLabel: "Account Summary" } }),
+        schemaEntry({
+          schemaId: "sch_3",
+          status: "failed",
+          schema: null,
+          tableLabel: "Workings",
+          failure: { class: "extract_empty", message: "This sheet has no columns." },
+        }),
+      ],
+    })
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderBatch()
+
+    // The empty sheet is named beside the two that read, on the file's own row.
+    expect(
+      await screen.findByText(
+        /Transactions · \d+ fields · Account Summary · \d+ fields · Workings · nothing usable/,
+      ),
+    ).toBeVisible()
+
+    // The workbook converts, so it must not be listed as a file that won't.
+    expect(screen.queryByText(/won't convert/)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^Convert/ })).toBeEnabled()
+  })
+
   it("gives a many-table file one button, and names every table on its row", async () => {
     mockBackend({
       entries: [
@@ -639,5 +671,105 @@ describe("the prepare screen", () => {
     mockBackend({ entries: [] })
     await renderBatch()
     expect(await screen.findByText("Nothing staged in this browser")).toBeVisible()
+  })
+})
+
+describe("Prepare — the batch nav", () => {
+  const step = (container: HTMLElement, id: string) =>
+    container.querySelector(`[data-step="${id}"]`)
+
+  it("stays on Files while shapes are still coming back, however eager the gate is", async () => {
+    // The server can report the gate open before this browser holds the shapes
+    // to show. The rail follows the *screen*, not the flag: moving off Files
+    // here would announce a screen change that has not happened.
+    mockBackend({ entries: [], pending: 1, convertAvailable: true })
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { container } = await renderBatch()
+
+    await waitFor(() => expect(step(container, "files")).toHaveAttribute("data-state", "current"))
+    expect(step(container, "schemas")).toHaveAttribute("data-state", "upcoming")
+    expect(step(container, "convert")).toHaveAttribute("data-state", "locked")
+  })
+
+  it("ticks Schemas once every file has settled a shape, without leaving Files", async () => {
+    mockBackend({ entries: [schemaEntry()], pending: 0, convertAvailable: true })
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { container } = await renderBatch()
+
+    await waitFor(() => expect(step(container, "schemas")).toHaveAttribute("data-state", "done"))
+    // Uploading and reading every file does not move the rail. Pressing Review
+    // schemas does, and nothing here has pressed it.
+    expect(step(container, "files")).toHaveAttribute("data-state", "current")
+  })
+
+  it("never offers Convert as somewhere to go", async () => {
+    mockBackend({ entries: [schemaEntry()], pending: 0, convertAvailable: true })
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { container } = await renderBatch()
+
+    await waitFor(() => expect(step(container, "schemas")).toHaveAttribute("data-state", "done"))
+    expect(step(container, "convert")?.querySelector("a")).toBeNull()
+  })
+})
+
+describe("the files a converted batch was built from", () => {
+  /** The rail's Files step, once the batch is past the gate. */
+  const renderFrozenFiles = () => renderBatch("done", { view: "files" })
+
+  it("opens the drop again rather than the results", async () => {
+    mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderFrozenFiles()
+
+    expect(await screen.findByText("invoice-1043.pdf")).toBeVisible()
+  })
+
+  it("takes nothing new, and undoes nothing that was taken", async () => {
+    mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderFrozenFiles()
+    await screen.findByText("invoice-1043.pdf")
+
+    // The batch was converted against this drop. Adding to it or removing from
+    // it would describe work the server has already done differently.
+    expect(screen.queryByRole("button", { name: "Drop more files" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Convert/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Review Schemas/ })).not.toBeInTheDocument()
+  })
+
+  it("says why it cannot be changed, and offers the way back", async () => {
+    mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderFrozenFiles()
+    await screen.findByText("invoice-1043.pdf")
+
+    expect(screen.getByText(/has been converted/)).toBeVisible()
+    expect(screen.getByRole("link", { name: "Back to results" })).toHaveAttribute(
+      "href",
+      `/request/${REQUEST}`,
+    )
+  })
+
+  it("keeps the rail on Files, with the gate already behind it", async () => {
+    mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    const { container } = await renderFrozenFiles()
+    await screen.findByText("invoice-1043.pdf")
+
+    expect(container.querySelector('[data-step="files"]')).toHaveAttribute(
+      "data-state",
+      "current",
+    )
+    expect(screen.getByText("Converted")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Results" })).toBeVisible()
+  })
+
+  it("serves the results, not the drop, when the view is not asked for", async () => {
+    mockBackend()
+    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
+    await renderBatch("done")
+
+    expect(screen.queryByRole("button", { name: "Drop more files" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/has been converted/)).not.toBeInTheDocument()
   })
 })

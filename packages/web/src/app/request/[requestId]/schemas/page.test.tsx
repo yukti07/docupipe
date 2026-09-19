@@ -75,7 +75,22 @@ function mockBackend(entries: SchemaEntry[]) {
   return saved
 }
 
-async function renderReview() {
+async function renderReview(phase?: string) {
+  if (phase) {
+    localStorage.setItem(
+      "quarry.workspace",
+      JSON.stringify([
+        {
+          requestId: REQUEST,
+          name: "Q3 invoices",
+          createdAt: "2026-09-14T10:00:00Z",
+          fileCount: 2,
+          phase,
+          summary: {},
+        },
+      ]),
+    )
+  }
   const params = Promise.resolve({ requestId: REQUEST })
   const searchParams = Promise.resolve({})
   let rendered!: ReturnType<typeof render>
@@ -124,7 +139,8 @@ describe("Review schemas", () => {
     await renderReview()
 
     expect(await screen.findByText("2 schemas to review")).toBeVisible()
-    expect(screen.getByText("4 tables · 4 files")).toBeVisible()
+    // The counts moved to the footer, beside the button they describe.
+    expect(screen.getByText("2 schemas · 4 tables · 4 files")).toBeVisible()
 
     const listed = cards()
     expect(listed).toHaveLength(2)
@@ -140,6 +156,25 @@ describe("Review schemas", () => {
     expect(screen.getByText("invoice-101.pdf")).toBeVisible()
     expect(screen.getByText("invoice-102.pdf")).toBeVisible()
     expect(screen.getByText("and 1 more")).toBeVisible()
+  })
+
+  it("opens the rest of the files from the count that stood for them", async () => {
+    mockBackend([entry(1, INVOICE), entry(2, INVOICE), entry(3, INVOICE), entry(4, INVOICE)])
+    const { user } = await renderReview()
+    await screen.findByText("1 schema to review")
+
+    expect(screen.queryByText("invoice-103.pdf")).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "and 2 more" }))
+
+    // Every file, and each one reachable — the count used to be a dead label,
+    // so the only way to a named file's table was its own row on Files.
+    expect(screen.getByText("invoice-103.pdf")).toBeVisible()
+    expect(screen.getByText("invoice-104.pdf")).toBeVisible()
+    expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit the schema for invoice-104.pdf" }),
+    ).toBeVisible()
   })
 
   it("says which of the three states every group is in", async () => {
@@ -236,5 +271,51 @@ describe("Review schemas", () => {
     expect(within(panel).getByText("Schema of 1 table")).toBeVisible()
     expect(within(panel).getByText("from invoice-101.pdf · table 1")).toBeVisible()
     expect(within(panel).getByRole("button", { name: /Saved/ })).toBeVisible()
+  })
+})
+
+describe("the schemas a converted batch was read against", () => {
+  it("shows them, and says they are a record rather than a form", async () => {
+    mockBackend([entry(1, INVOICE)])
+    await renderReview("done")
+
+    expect(await screen.findByText("1 schema to review")).toBeVisible()
+    expect(screen.getByText(/has been converted/)).toBeVisible()
+  })
+
+  it("takes no edits, and offers no second conversion", async () => {
+    mockBackend([entry(1, INVOICE)])
+    await renderReview("done")
+    await screen.findByText("1 schema to review")
+
+    const panel = screen.getByRole("complementary", { name: "Schema" })
+    // The fields stay readable — they are what the batch was read against —
+    // but every way of changing one is shut.
+    expect(within(panel).getByText("invoice_number")).toBeVisible()
+    expect(within(panel).getByRole("combobox", { name: "Type of invoice_number" })).toBeDisabled()
+    expect(within(panel).queryByRole("button", { name: "Save" })).not.toBeInTheDocument()
+    expect(within(panel).queryByRole("button", { name: /Add field/ })).not.toBeInTheDocument()
+    expect(within(panel).getByText(/Schemas freeze at Convert/)).toBeVisible()
+    expect(screen.queryByRole("button", { name: /^Convert/ })).not.toBeInTheDocument()
+  })
+
+  it("offers the way back to the results instead", async () => {
+    mockBackend([entry(1, INVOICE)])
+    await renderReview("done")
+    await screen.findByText("1 schema to review")
+
+    expect(screen.getByRole("link", { name: "Back to results" })).toHaveAttribute(
+      "href",
+      `/request/${REQUEST}`,
+    )
+  })
+
+  it("is an ordinary editable screen before the gate", async () => {
+    mockBackend([entry(1, INVOICE)])
+    await renderReview("prepare")
+    await screen.findByText("1 schema to review")
+
+    expect(screen.getByRole("button", { name: /^Convert/ })).toBeVisible()
+    expect(screen.queryByText(/has been converted/)).not.toBeInTheDocument()
   })
 })

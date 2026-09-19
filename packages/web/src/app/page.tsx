@@ -2,15 +2,26 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useEffectEvent, useState } from "react"
+import {
+  Suspense,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react"
 import { EmptyState } from "@/components/common/EmptyState"
 import { ErrorState } from "@/components/common/ErrorState"
 import { LoadingState } from "@/components/common/LoadingState"
 import { AppHeader } from "@/components/quarry/AppHeader"
 import { BatchCard } from "@/components/quarry/BatchCard"
+import { DropStrip } from "@/components/quarry/DropStrip"
 import { DropZone } from "@/components/quarry/DropZone"
+import { IntroHero } from "@/components/quarry/IntroHero"
 import { toFailure } from "@/lib/api"
 import type { Failure } from "@/lib/api/types"
+import { hasSeenIntro, markIntroSeen } from "@/lib/intro"
 import { stageFiles } from "@/lib/preflight"
 import { ensureSession, getPreviousUserId, newRequestId } from "@/lib/session"
 import { stageForRequest } from "@/state/staged"
@@ -39,6 +50,24 @@ function Workspace() {
   const workspace = useWorkspace()
 
   const [attempt, setAttempt] = useState(0)
+  const sentinel = useRef<HTMLDivElement>(null)
+  const pastCard = useScrolledPast(sentinel)
+
+  // Storage is an external system, and this particular corner of it cannot
+  // change under us during a visit. The server has no storage at all, so it
+  // answers "seen": the intro then arrives on hydration rather than being
+  // rendered and torn straight back down.
+  const seenIntro = useSyncExternalStore(neverChanges, hasSeenIntro, () => true)
+  // Set once it has played out or been skipped. There is no way back to it:
+  // the intro is what this browser's first visit looks like, not a feature.
+  const [dismissed, setDismissed] = useState(false)
+  const introPlaying = !seenIntro && !dismissed
+
+  function endIntro() {
+    markIntroSeen()
+    setDismissed(true)
+  }
+
   // One piece of state, written only from the async callbacks, and read back
   // only when it belongs to the attempt being shown. Pressing Try again clears
   // the error by changing the attempt rather than by resetting state on the way
@@ -78,6 +107,7 @@ function Workspace() {
   const userId = current?.userId ?? null
   const sessionFailure = current?.failure ?? null
   const previousId = current?.previousId ?? null
+  const waking = userId ? null : "Waking up your workspace — one moment."
 
   function onFiles(files: File[]) {
     // The zone is inert without a session, so this cannot fire early. The guard
@@ -101,7 +131,7 @@ function Workspace() {
   if (sessionFailure) {
     return (
       <>
-        <AppHeader userId={null} />
+        <AppHeader />
         <main className="flex flex-1 items-center justify-center p-6">
           <ErrorState
             title="Couldn't open your workspace"
@@ -115,16 +145,28 @@ function Workspace() {
 
   return (
     <>
-      <AppHeader userId={userId} />
-      <main className="mx-auto w-full max-w-[1100px] flex-1 px-6 py-10">
+      <AppHeader />
+
+      {introPlaying && <IntroHero onDone={endIntro} />}
+
+      {/* Outside the padded column: the strip spans the window and does its
+          own centring, so it reads as chrome rather than as page content. */}
+      <DropStrip
+        onFiles={onFiles}
+        disabledReason={waking}
+        shown={pastCard && !introPlaying}
+      />
+
+      <main className="mx-auto w-full max-w-[1100px] flex-1 px-6 pb-10 pt-6">
         {/* The drop zone is the page — it carries the visible heading, so the
             document heading is here for a screen reader and nowhere else. */}
         <h1 className="sr-only">Your workspace</h1>
 
-        <DropZone
-          onFiles={onFiles}
-          disabledReason={userId ? null : "Waking up your workspace — one moment."}
-        />
+        <DropZone onFiles={onFiles} disabledReason={waking} />
+
+        {/* What the strip watches for. It sits below the card rather than on
+            it, so the strip arrives exactly as the card's last row leaves. */}
+        <div ref={sentinel} aria-hidden className="h-px" />
 
         {/* Adopting a shared link swaps this browser's identity, and the
             batches that came with the old one went with it. */}
@@ -170,6 +212,35 @@ function Workspace() {
       </main>
     </>
   )
+}
+
+/** `useSyncExternalStore` needs a subscribe; nothing here ever emits. */
+const neverChanges = () => () => {}
+
+/**
+ * Whether a marker element has scrolled off the top of the window.
+ *
+ * An observer rather than a scroll listener: the page scrolls the body, so a
+ * listener would mean a threshold in pixels that has to be kept in step with
+ * the card's height. A marker under the card needs no such number.
+ */
+function useScrolledPast(marker: RefObject<HTMLElement | null>): boolean {
+  const [past, setPast] = useState(false)
+
+  useEffect(() => {
+    const node = marker.current
+    // jsdom has no IntersectionObserver, and the strip is not what those tests
+    // are about — without one the page simply renders it retracted.
+    if (!node || typeof IntersectionObserver === "undefined") return
+    const observer = new IntersectionObserver(
+      ([entry]) => setPast(!entry.isIntersecting && entry.boundingClientRect.top < 0),
+      { threshold: 0 },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [marker])
+
+  return past
 }
 
 /** "Q3 invoices/invoice-1043.pdf" names the batch after the folder it came from. */

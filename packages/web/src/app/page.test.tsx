@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw"
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@/test/render"
+import { fireEvent, render, screen, waitFor, within } from "@/test/render"
 import { server } from "@/test/msw/server"
 import { peekStagedFiles } from "@/state/staged"
 import { WorkspaceProvider, type WorkspaceBatch } from "@/state/workspace"
@@ -29,6 +29,9 @@ const batch = (over: Partial<WorkspaceBatch> = {}): WorkspaceBatch => ({
   ...over,
 })
 
+/** The hero card, as opposed to the sticky strip that says the same things. */
+const card = () => screen.getByTestId("drop-card")
+
 const renderPage = () =>
   render(
     <WorkspaceProvider>
@@ -40,8 +43,23 @@ describe("S01 workspace", () => {
   it("shows the drop zone as the page on a first visit, with no pretend content", async () => {
     registers()
     renderPage()
-    expect(await screen.findByText("Drop your documents here")).toBeVisible()
+    expect(await within(card()).findByText("Drop your documents here")).toBeVisible()
     await waitFor(() => expect(screen.getByText("No batches yet")).toBeVisible())
+  })
+
+  it("opens on the intro the first time this browser lands here", async () => {
+    registers()
+    renderPage()
+    expect(await screen.findByRole("dialog", { name: "Anything in. Tables out." })).toBeVisible()
+  })
+
+  // A returning user is here to start their fifth batch, not to watch a demo.
+  it("skips the intro once it has played", async () => {
+    registers()
+    localStorage.setItem("quarry.introSeen", "1")
+    renderPage()
+    await within(card()).findByText("Drop your documents here")
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 
   it("lists the batches this browser is holding", async () => {
@@ -62,7 +80,7 @@ describe("S01 workspace", () => {
   it("stages a drop against a fresh request and moves to it", async () => {
     registers()
     renderPage()
-    const zone = (await screen.findByText("Drop your documents here")).closest("[data-state]")!
+    const zone = card()
     await waitFor(() => expect(zone).toHaveAttribute("data-state", "idle"))
 
     fireEvent.drop(zone, {
@@ -85,9 +103,9 @@ describe("S01 workspace", () => {
       }),
     )
     renderPage()
-    const zone = (await screen.findByText("Drop your documents here")).closest("[data-state]")!
+    const zone = card()
     expect(zone).toHaveAttribute("data-state", "disabled")
-    expect(screen.getByText("Waking up your workspace — one moment.")).toBeVisible()
+    expect(within(zone).getByText("Waking up your workspace — one moment.")).toBeVisible()
     released.resolve()
   })
 })

@@ -4,7 +4,9 @@ import Link from "next/link"
 import { use, useCallback, useEffect, useState } from "react"
 import { ErrorState } from "@/components/common/ErrorState"
 import { LoadingState } from "@/components/common/LoadingState"
-import { AppHeader } from "@/components/quarry/AppHeader"
+import { BatchFooter } from "@/components/common/BatchFooter"
+import { BatchShell } from "@/components/common/BatchShell"
+import { railPhase } from "@/components/quarry/BatchNav"
 import { MergePicker } from "@/components/quarry/MergePicker"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
@@ -13,11 +15,13 @@ import { forgetCached } from "@/lib/cache"
 import { formatCount } from "@/lib/format"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
+import { useWorkspace } from "@/state/workspace"
 
 export default function MergePage({ params }: PageProps<"/request/[requestId]/merge"> ) {
   const { requestId } = use(params)
   const [userId, setUserId] = useState<string | null>(null)
   const [merged, setMerged] = useState<Extract<MergeResult, { ok: true }> | null>(null)
+  const { batches } = useWorkspace()
 
   const {
     data: overview,
@@ -38,19 +42,28 @@ export default function MergePage({ params }: PageProps<"/request/[requestId]/me
   const invalidateBatch = useCallback(() => forgetCached(requestId), [requestId])
 
   return (
-    <>
-      <AppHeader userId={userId}>
-        <div className="min-w-0">
-          <p className="truncate text-[12px] text-muted-foreground">
-            <Link href={`/request/${requestId}`} className="hover:underline">
-              Back to the batch
-            </Link>
-          </p>
-          <p className="truncate text-[13px] font-medium">Combine tables</p>
-        </div>
-      </AppHeader>
-
-      <main className="mx-auto w-full max-w-[1080px] flex-1 px-6 py-6">
+    <BatchShell
+      requestId={requestId}
+      current="results"
+      done={{ files: true, schemas: true }}
+      // Only a finished batch can be combined, so this screen is always past
+      // the gate whether or not this browser watched it cross.
+      phase={railPhase(batches.find((b) => b.requestId === requestId)?.phase ?? "done")}
+      tail="Merge"
+      footer={
+        // Combining stays in the summary beside the selection it describes —
+        // it is the one action on this screen that means nothing without the
+        // ticks next to it. The footer carries the way out.
+        <BatchFooter
+          actions={
+            <Button asChild variant="outline" className="h-10 rounded-[10px] bg-card text-[13px]">
+              <Link href={`/request/${requestId}`}>Back to results</Link>
+            </Button>
+          }
+        />
+      }
+    >
+      <main className="mx-auto w-full max-w-[1080px] px-6 py-6">
         {failure && (
           <ErrorState
             title="Couldn't list the finished tables"
@@ -85,24 +98,18 @@ export default function MergePage({ params }: PageProps<"/request/[requestId]/me
             <p className="text-[13px] tabular-nums text-subtle-foreground">
               {formatCount(merged.tableCount)} tables in this batch now.
             </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button asChild className="h-9 rounded-[10px]">
-                <Link href={`/request/${requestId}`}>Back to the batch</Link>
-              </Button>
-              {/* A batch with several shapes has several merges in it. Leaving
-                  this screen and coming back was the only way to reach the
-                  next one. */}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setMerged(null)
-                  reload()
-                }}
-                className="h-9 rounded-[10px] bg-card"
-              >
-                Combine more tables
-              </Button>
-            </div>
+            {/* A batch with several shapes has several merges in it. Leaving
+                this screen and coming back was the only way to reach the next
+                one. Going back to the batch is the footer's job. */}
+            <Button
+              onClick={() => {
+                setMerged(null)
+                reload()
+              }}
+              className="h-9 rounded-[10px]"
+            >
+              Combine more tables
+            </Button>
           </div>
         ) : (
           overview && (
@@ -130,6 +137,6 @@ export default function MergePage({ params }: PageProps<"/request/[requestId]/me
           )
         )}
       </main>
-    </>
+    </BatchShell>
   )
 }

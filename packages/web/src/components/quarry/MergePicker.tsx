@@ -173,7 +173,12 @@ export function MergePicker({
           body="Combining is exact — same field names, same types. Every table here has a shape of its own, so there is nothing to put together."
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
+        <div
+          // `minmax(0,1fr)`, not `1fr`: a grid track's automatic minimum is its
+          // min-content, and a long filename in the list would otherwise push
+          // the summary — and the Combine button on it — off the right edge.
+          className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start"
+        >
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[12.5px] tabular-nums text-subtle-foreground">

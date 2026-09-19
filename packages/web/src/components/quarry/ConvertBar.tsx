@@ -2,6 +2,7 @@
 
 import { Loader2 } from "lucide-react"
 import Link from "next/link"
+import { BatchFooter } from "@/components/common/BatchFooter"
 import { GatedButton } from "@/components/common/GatedButton"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { Failure } from "@/lib/api/types"
@@ -73,79 +74,65 @@ export function ConvertBar({
   )
 
   return (
-    <div className={cn("border-t border-border-subtle bg-card", className)}>
-      {/* The batch's own bar, along the top edge of the footer: one line for
-          the whole drop, where the per-file bars cannot be read at a glance. */}
-      {progress && progress.total > 0 && (
-        <div
-          role="progressbar"
-          aria-label="Uploading this batch"
-          aria-valuenow={Math.round(progress.fraction * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="h-[3px] w-full bg-border-subtle"
-        >
-          <div
-            className="h-full bg-primary transition-[width] duration-300"
-            style={{ width: `${Math.min(100, progress.fraction * 100)}%` }}
-          />
-        </div>
-      )}
-
-      <div className="flex flex-col gap-3 px-6 py-3.5">
-        {failure && <FailureMessage failure={failure} />}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {progress && progress.total > 0 && (
-            <div className="flex min-w-0 items-center gap-2.5">
-              {working && (
-                <Loader2
-                  aria-hidden
-                  className="size-4 shrink-0 animate-spin text-primary"
-                  strokeWidth={2}
-                />
-              )}
-              {/* Two clocks, two lines: the bytes going up, and the shapes
-                  coming back. Announced as they change, never focused. */}
-              <div aria-live="polite" className="min-w-0">
-                <p className="truncate text-[13px] font-medium tabular-nums">
-                  {uploadLine(progress)}
-                </p>
-                <p
-                  className={cn(
-                    "truncate text-[12px] tabular-nums",
-                    stalled ? "text-review" : "text-muted-foreground",
-                  )}
-                >
-                  {stalled
-                    ? "Taking longer than expected — you can convert without waiting."
-                    : schemaLine(progress)}
-                </p>
-              </div>
+    <BatchFooter
+      className={className}
+      // The batch's own bar, along the top edge of the footer: one line for
+      // the whole drop, where the per-file bars cannot be read at a glance.
+      progress={progress && progress.total > 0 ? progress.fraction : undefined}
+      progressLabel="Uploading this batch"
+      banner={failure ? <FailureMessage failure={failure} /> : undefined}
+      status={
+        progress && progress.total > 0 ? (
+          <>
+            {working && (
+              <Loader2
+                aria-hidden
+                className="size-4 shrink-0 animate-spin text-primary"
+                strokeWidth={2}
+              />
+            )}
+            {/* Two clocks, two lines: the bytes going up, and the shapes
+                coming back. Announced as they change, never focused. */}
+            <div aria-live="polite" className="min-w-0">
+              <p className="truncate text-[13px] font-medium tabular-nums">
+                {uploadLine(progress)}
+              </p>
+              <p
+                className={cn(
+                  "truncate text-[12px] tabular-nums",
+                  stalled ? "text-review" : "text-muted-foreground",
+                )}
+              >
+                {stalled
+                  ? "Taking longer than expected — you can convert without waiting."
+                  : schemaLine(progress)}
+              </p>
             </div>
-          )}
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {/* A link rather than a push: Next prefetches it while it sits in
-                the footer, so pressing it does not begin by fetching the
-                screen it is meant to open. */}
-            <GatedButton
-              asChild={reviewReason ? undefined : true}
-              variant="outline"
-              reason={reviewReason}
-              hideReason
-              className="bg-card"
-            >
-              {reviewReason ? "Review Schemas" : <Link href={reviewHref}>Review Schemas</Link>}
-            </GatedButton>
-            <GatedButton reason={convertReason} hideReason onClick={onConvert}>
-              {converting
-                ? "Converting…"
-                : `Convert${readySchemaCount > 0 ? ` · ${formatCount(readySchemaCount)}` : ""}`}
-            </GatedButton>
-          </div>
-        </div>
-      </div>
-    </div>
+          </>
+        ) : undefined
+      }
+      actions={
+        <>
+          {/* A link rather than a push: Next prefetches it while it sits in
+              the footer, so pressing it does not begin by fetching the
+              screen it is meant to open. */}
+          <GatedButton
+            asChild={reviewReason ? undefined : true}
+            variant="outline"
+            reason={reviewReason}
+            hideReason
+            className="bg-card"
+          >
+            {reviewReason ? "Review Schemas" : <Link href={reviewHref}>Review Schemas</Link>}
+          </GatedButton>
+          {/* No count. What is being converted is on the screen above, and a
+              figure on the button only invites the reader to check it. */}
+          <GatedButton reason={convertReason} hideReason onClick={onConvert}>
+            {converting ? "Converting…" : "Convert"}
+          </GatedButton>
+        </>
+      }
+    />
   )
 }
 

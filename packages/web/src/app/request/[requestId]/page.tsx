@@ -3,10 +3,11 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { use, useEffect, useMemo, useState } from "react"
+import { BatchFooter } from "@/components/common/BatchFooter"
+import { BatchShell } from "@/components/common/BatchShell"
 import { EmptyState } from "@/components/common/EmptyState"
 import { GatedButton } from "@/components/common/GatedButton"
-import { SplitPane } from "@/components/common/SplitPane"
-import { AppHeader } from "@/components/quarry/AppHeader"
+import { railPhase, type BatchPhase } from "@/components/quarry/BatchNav"
 import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { ConvertBar } from "@/components/quarry/ConvertBar"
 import { ConvertingSkeleton } from "@/components/quarry/ConvertingSkeleton"
@@ -26,7 +27,12 @@ import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
 import { forgetCached, readCachedResult } from "@/lib/cache"
 import { formatCount } from "@/lib/format"
-import { updateTargetsFor, type SchemaState } from "@/lib/schema"
+import {
+  allShapesSettled,
+  updateTargetsFor,
+  type SchemaState,
+  type TableFailure,
+} from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch, type BatchFile } from "@/state/batch"
 import { forgetFiles } from "@/state/batchFiles"
@@ -46,8 +52,12 @@ const UPLOAD_STAGE: Record<BatchFile["stage"], FileRowState> = {
   failed: "failed",
 }
 
-export default function BatchPage({ params }: PageProps<"/request/[requestId]">) {
+export default function BatchPage({ params, searchParams }: PageProps<"/request/[requestId]">) {
   const { requestId } = use(params)
+  // The rail's Files step points here with `?view=files` once the batch has
+  // converted. The files are still worth looking at then — what was dropped,
+  // and what shape each one gave up — so the screen comes back, read-only.
+  const wantsFiles = use(searchParams).view === "files"
   const [userId, setUserId] = useState<string | null>(null)
   const { batches, updateBatch } = useWorkspace()
   const batch = batches.find((b) => b.requestId === requestId)
@@ -79,7 +89,7 @@ export default function BatchPage({ params }: PageProps<"/request/[requestId]">)
     if (probe === "started" && !noted) updateBatch(requestId, { phase: "converting" })
   }, [noted, probe, requestId, updateBatch])
 
-  return converting ? (
+  return converting && !wantsFiles ? (
     <Converting
       requestId={requestId}
       userId={userId}
@@ -87,7 +97,15 @@ export default function BatchPage({ params }: PageProps<"/request/[requestId]">)
       onPhase={updateBatch}
     />
   ) : (
-    <Prepare requestId={requestId} userId={userId} onPhase={updateBatch} />
+    <Prepare
+      requestId={requestId}
+      userId={userId}
+      // Everything the shape of this batch is made of is fixed the moment the
+      // work starts. The screen still opens; nothing on it can be changed.
+      frozen={converting}
+      phase={railPhase(batch?.phase)}
+      onPhase={updateBatch}
+    />
   )
 }
 
@@ -100,10 +118,15 @@ type PhaseWriter = ReturnType<typeof useWorkspace>["updateBatch"]
 function Prepare({
   requestId,
   userId,
+  frozen,
+  phase,
   onPhase,
 }: {
   requestId: string
   userId: string | null
+  /** Reached from the rail after the gate: a record, not a workspace. */
+  frozen?: boolean
+  phase: BatchPhase
   onPhase: PhaseWriter
 }) {
   const batch = useBatch(requestId, userId)
@@ -165,123 +188,142 @@ function Prepare({
     fraction: uploadFraction(batch.files),
   }
 
+  // The nav's first two steps, both counted from the same numbers the footer
+  // prints — so the bar can never contradict the two lines directly beneath it.
+  //
+  // Step 2 deliberately does *not* read `convertAvailable`. That flag can turn
+  // true a poll before the shapes it refers to reach this browser, which ticked
+  // Schemas above a footer still reading "0 of 3 schemas back". It stays ticked
+  // whether or not anyone opened Review schemas, which was the point of it —
+  // settling a shape is what counts, and a file that could not give one up has
+  // settled just as surely as one that did.
+  const prepareDone = {
+    files: progress.total > 0 && progress.uploaded === progress.total,
+    schemas: allShapesSettled(batch.schemas, batch.wontConvert, progress.total),
+  }
+
   return (
-    <>
-      <AppHeader userId={userId}>
-        {/* The counts live on the footer now, beside the bar they belong to.
-            The way out sits above them: a batch you cannot leave without the
-            browser's Back button is one you are stuck in. */}
-        <div className="min-w-0">
-          <p className="truncate text-[12px] text-muted-foreground">
-            <Link href="/" className="hover:underline">
-              Your workspace
-            </Link>
-          </p>
-          <p className="truncate text-[13px] font-medium">Prepare</p>
-        </div>
-      </AppHeader>
+    <BatchShell
+      requestId={requestId}
+      current="files"
+      done={prepareDone}
+      phase={phase}
+      panelWidth={460}
+      panelLabel="Schema"
+      closePanelOnPressOutside
+      onClosePanel={() => setOpenFileId(null)}
+      panel={
+        openFileId && openSchemas.length > 0 ? (
+          <FileSchemaPanel
+            fileName={openFile?.name ?? openSchemas[0].fileName}
+            schemas={openSchemas}
+            frozen={frozen}
+            targetsFor={(schema) => updateTargetsFor(batch.schemas, schema)}
+            onClose={() => setOpenFileId(null)}
+            onSave={(schemaId, fields, alsoApplyTo) =>
+              batch.saveSchema(schemaId, fields, alsoApplyTo)
+            }
+          />
+        ) : null
+      }
+      footer={
+        frozen ? (
+          <BatchFooter
+            status={
+              <p className="text-[12.5px] text-muted-foreground">
+                This batch has been converted. Its files and their shapes are fixed.
+              </p>
+            }
+            actions={
+              <Button asChild className="h-10 rounded-[10px] text-[13px]">
+                <Link href={`/request/${requestId}`}>Back to results</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <ConvertBar
+            readySchemaCount={batch.schemas.length}
+            convertAvailable={batch.convertAvailable}
+            convertBlockedReason={batch.convertBlockedReason}
+            converting={converting}
+            failure={convertFailure}
+            progress={progress}
+            stalled={batch.schemasStalled}
+            // Every schema in the batch, grouped, on a screen of its own — the
+            // footer button is the eye button widened to the whole drop.
+            reviewHref={`/request/${requestId}/schemas`}
+            onConvert={convert}
+          />
+        )
+      }
+    >
+      <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-6 py-6">
+        {batch.failure && <FailureMessage failure={batch.failure} />}
+        {batch.schemaPollFailure && <ConnectionStatus failure={batch.schemaPollFailure} />}
 
-      <SplitPane
-        className="flex-1"
-        panelWidth={460}
-        panelLabel="Schema"
-        closeOnPressOutside
-        onClose={() => setOpenFileId(null)}
-        panel={
-          openFileId && openSchemas.length > 0 ? (
-            <FileSchemaPanel
-              fileName={openFile?.name ?? openSchemas[0].fileName}
-              schemas={openSchemas}
-              targetsFor={(schema) => updateTargetsFor(batch.schemas, schema)}
-              onClose={() => setOpenFileId(null)}
-              onSave={(schemaId, fields, alsoApplyTo) =>
-                batch.saveSchema(schemaId, fields, alsoApplyTo)
-              }
-            />
-          ) : null
-        }
-        list={
-          <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-6 py-6">
-            {batch.failure && <FailureMessage failure={batch.failure} />}
-            {batch.schemaPollFailure && (
-              <ConnectionStatus failure={batch.schemaPollFailure} />
-            )}
+        {batch.files.length === 0 && batch.schemas.length === 0 && !batch.schemaPollFailure && (
+          <EmptyState
+            title="Nothing staged in this browser"
+            body="This batch was started somewhere else, or the page was reloaded mid-upload. Anything that reached the server is listed as its shape comes back."
+            action={
+              <Button asChild variant="outline" className="h-9 rounded-[10px] bg-card">
+                <Link href="/">Back to your workspace</Link>
+              </Button>
+            }
+          />
+        )}
 
-            {batch.files.length === 0 && batch.schemas.length === 0 && !batch.schemaPollFailure && (
-              <EmptyState
-                title="Nothing staged in this browser"
-                body="This batch was started somewhere else, or the page was reloaded mid-upload. Anything that reached the server is listed as its shape comes back."
-                action={
-                  <Button asChild variant="outline" className="h-9 rounded-[10px] bg-card">
-                    <Link href="/">Back to your workspace</Link>
-                  </Button>
+        {batch.files.length > 0 && (
+          // The header already carries the status sentence; saying it twice
+          // on one screen makes neither copy worth reading. This line acts
+          // on the batch instead, and keeps its weight on the right.
+          <FileList
+            summary={
+              <FileActions
+                fileCount={batch.files.length}
+                totalBytes={totalBytes}
+                failedCount={batch.retryableCount}
+                frozen={frozen}
+                onRetryAll={batch.retryAllUploads}
+                onDiscardFailed={discardFailed}
+                onAddFiles={batch.addFiles}
+              />
+            }
+          >
+            {batch.files.map((file) => (
+              <FileRow
+                key={file.localId}
+                name={file.name}
+                location={file.location}
+                size={file.size}
+                state={rowState(file)}
+                failure={file.failure}
+                onRetry={
+                  !frozen && file.stage === "failed" && file.file
+                    ? () => batch.retryUpload(file.localId)
+                    : undefined
+                }
+                detail={shapeDetail(file, batch.schemas, batch.emptyTables)}
+                trailing={
+                  <FileEditButton
+                    file={file}
+                    schemas={batch.schemas}
+                    wontConvert={batch.wontConvert}
+                    stalled={batch.schemasStalled}
+                    onOpen={setOpenFileId}
+                  />
                 }
               />
-            )}
+            ))}
+          </FileList>
+        )}
 
-            {batch.files.length > 0 && (
-              // The header already carries the status sentence; saying it twice
-              // on one screen makes neither copy worth reading. This line acts
-              // on the batch instead, and keeps its weight on the right.
-              <FileList
-                summary={
-                  <FileActions
-                    fileCount={batch.files.length}
-                    totalBytes={totalBytes}
-                    failedCount={batch.retryableCount}
-                    onRetryAll={batch.retryAllUploads}
-                    onDiscardFailed={discardFailed}
-                    onAddFiles={batch.addFiles}
-                  />
-                }
-              >
-                {batch.files.map((file) => (
-                  <FileRow
-                    key={file.localId}
-                    name={file.name}
-                    location={file.location}
-                    size={file.size}
-                    state={rowState(file)}
-                    failure={file.failure}
-                    onRetry={
-                      file.stage === "failed" && file.file
-                        ? () => batch.retryUpload(file.localId)
-                        : undefined
-                    }
-                    detail={shapeDetail(file, batch.schemas)}
-                    trailing={
-                      <FileEditButton
-                        file={file}
-                        schemas={batch.schemas}
-                        wontConvert={batch.wontConvert}
-                        stalled={batch.schemasStalled}
-                        onOpen={setOpenFileId}
-                      />
-                    }
-                  />
-                ))}
-              </FileList>
-            )}
-
-            <WontConvertPanel entries={batch.wontConvert} onDiscard={discardFiles} />
-          </div>
-        }
-      />
-
-      <ConvertBar
-        readySchemaCount={batch.schemas.length}
-        convertAvailable={batch.convertAvailable}
-        convertBlockedReason={batch.convertBlockedReason}
-        converting={converting}
-        failure={convertFailure}
-        progress={progress}
-        stalled={batch.schemasStalled}
-        // Every schema in the batch, grouped, on a screen of its own — the
-        // footer button is the eye button widened to the whole drop.
-        reviewHref={`/request/${requestId}/schemas`}
-        onConvert={convert}
-      />
-    </>
+        <WontConvertPanel
+          entries={batch.wontConvert}
+          onDiscard={frozen ? undefined : discardFiles}
+        />
+      </div>
+    </BatchShell>
   )
 }
 
@@ -309,12 +351,22 @@ function editState(
  * Counted table by table rather than summed: field lists differ between the
  * tables in one file, so a total would be a number nothing actually has.
  */
-function shapeDetail(file: BatchFile, schemas: SchemaState[]): string | undefined {
+function shapeDetail(
+  file: BatchFile,
+  schemas: SchemaState[],
+  emptyTables: TableFailure[] = [],
+): string | undefined {
   const mine = schemas.filter((s) => s.fileId === file.fileId)
-  if (mine.length === 0) return undefined
-  return mine
-    .map((s) => `${s.tableLabel} · ${formatCount(s.current.length)} fields`)
-    .join(" · ")
+  // A worksheet that gave nothing is named here beside the ones that did. It
+  // is not an error on the file — the file converts — but leaving it out would
+  // show a three-sheet workbook as two sheets and say nothing about the third.
+  const empty = emptyTables.filter((t) => t.fileId === file.fileId)
+  if (mine.length === 0 && empty.length === 0) return undefined
+
+  return [
+    ...mine.map((s) => `${s.tableLabel} · ${formatCount(s.current.length)} fields`),
+    ...empty.map((t) => `${t.tableLabel} · nothing usable`),
+  ].join(" · ")
 }
 
 /**
@@ -429,17 +481,57 @@ function Converting({
   const nothingUsable = result ? result.counts.done === 0 && finished : false
 
   return (
-    <>
-      <AppHeader userId={userId} allowance={result?.allowance}>
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-medium">
-            {finished ? "Finished" : result?.status === "PAUSED" ? "Paused" : "Converting"}
-          </p>
-          {result && <StatusSentence result={result} className="truncate" />}
-        </div>
-      </AppHeader>
-
-      <main className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col gap-6 px-6 py-6">
+    <BatchShell
+      requestId={requestId}
+      current="results"
+      done={{ files: true, schemas: true }}
+      // The rail's dashes march between Convert and Results until the last
+      // file has landed; after that the step is a padlock reading "Converted".
+      phase={finished ? "converted" : "converting"}
+      footer={
+        <BatchFooter
+          status={
+            result ? (
+              <span className="text-[12.5px] tabular-nums text-subtle-foreground">
+                {formatCount(result.rowsSoFar)} rows so far across{" "}
+                {formatCount(result.counts.done)} tables
+              </span>
+            ) : undefined
+          }
+          actions={
+            result ? (
+              <>
+                {/* Combining tables is available once every file has
+                    finished. Not gated on there being two tables left: a
+                    batch that has collapsed into one merged table still
+                    needs a way back to the screen that can undo it. */}
+                <GatedButton
+                  asChild={finished && result.counts.done > 0 ? true : undefined}
+                  variant="outline"
+                  reason={
+                    !finished
+                      ? "Available once every file has finished"
+                      : result.counts.done === 0
+                        ? "No table finished, so there is nothing to combine"
+                        : null
+                  }
+                  hideReason
+                  className="bg-card"
+                >
+                  {finished && result.counts.done > 0 ? (
+                    <Link href={`/request/${requestId}/merge`}>Merge</Link>
+                  ) : (
+                    "Merge"
+                  )}
+                </GatedButton>
+                <DownloadAllDialog requestId={requestId} result={result} />
+              </>
+            ) : undefined
+          }
+        />
+      }
+    >
+      <main className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-6 py-6">
         {/* One wait, not two: pressing Convert lands here, and the only thing
             still missing is the server's first answer. The rows it brings say
             Waiting with a spinner of their own, so there is no second
@@ -471,6 +563,8 @@ function Converting({
               <PausedBanner pausedUntil={result.pausedUntil} allowance={result.allowance} />
             )}
 
+            <StatusSentence result={result} />
+
             <PipelineStrip counts={result.counts} />
 
             {nothingUsable ? (
@@ -480,47 +574,10 @@ function Converting({
               />
             ) : null}
 
-            <TableList
-              requestId={requestId}
-              entries={result.files}
-              summary={
-                <>
-                  <span>
-                    {formatCount(result.rowsSoFar)} rows so far across{" "}
-                    {formatCount(result.counts.done)} tables
-                  </span>
-                  <span className="flex items-center gap-2">
-                    {/* Combining tables is available once every file has
-                        finished. Not gated on there being two tables left: a
-                        batch that has collapsed into one merged table still
-                        needs a way back to the screen that can undo it. */}
-                    <GatedButton
-                      asChild={finished && result.counts.done > 0 ? true : undefined}
-                      variant="outline"
-                      reason={
-                        !finished
-                          ? "Available once every file has finished"
-                          : result.counts.done === 0
-                            ? "No table finished, so there is nothing to combine"
-                            : null
-                      }
-                      reasonClassName="hidden sm:inline"
-                      className="h-8 rounded-lg bg-card text-[12.5px]"
-                    >
-                      {finished && result.counts.done > 0 ? (
-                        <Link href={`/request/${requestId}/merge`}>Merge</Link>
-                      ) : (
-                        "Merge"
-                      )}
-                    </GatedButton>
-                    <DownloadAllDialog requestId={requestId} result={result} />
-                  </span>
-                </>
-              }
-            />
+            <TableList requestId={requestId} entries={result.files} />
           </>
         )}
       </main>
-    </>
+    </BatchShell>
   )
 }
