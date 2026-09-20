@@ -45,8 +45,8 @@ export function PipelineStrip({
   // running" beside a nought, which is the nought again in words — three lines
   // of small print for a strip whose whole job is three numbers.
   const stages = [
-    { key: "detect", label: "Schema Detection", icon: AlignLeft, value: detecting },
-    { key: "process", label: "Data Processing", icon: Table2, value: processing },
+    { key: "detect", label: "Detecting Schema", icon: AlignLeft, value: detecting },
+    { key: "process", label: "Processing Data", icon: Table2, value: processing },
     {
       key: "done",
       label: "Done",

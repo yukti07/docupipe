@@ -680,7 +680,7 @@ describe("the results screen, before every shape is back", () => {
     expect(screen.getAllByText("Detecting")).toHaveLength(2)
   })
 
-  it("stands on Schema Detection until one of them has a table", async () => {
+  it("stands on Detecting Schema until one of them has a table", async () => {
     mockBackend({ result: partial() })
     remember([{ fileId: "file_1", fileName: "invoice-1043.pdf" }])
     const { container } = await renderBatch("converting")

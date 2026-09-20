@@ -80,8 +80,8 @@ describe("PipelineStrip", () => {
     // Queued, extracting and filling are one thing from the outside: a table
     // is being made. The stages are named for what is happening, not for the
     // worker's own vocabulary.
-    expect(screen.getByText("Schema Detection")).toBeVisible()
-    expect(screen.getByText("Data Processing")).toBeVisible()
+    expect(screen.getByText("Detecting Schema")).toBeVisible()
+    expect(screen.getByText("Processing Data")).toBeVisible()
     expect(screen.getByText("Done")).toBeVisible()
     expect(screen.queryByText("Queued")).not.toBeInTheDocument()
     expect(screen.queryByText("Extracting")).not.toBeInTheDocument()
@@ -93,7 +93,7 @@ describe("PipelineStrip", () => {
     expect(screen.getByText(/45 tables in total/)).toBeInTheDocument()
   })
 
-  it("stands on Schema Detection before one table exists", () => {
+  it("stands on Detecting Schema before one table exists", () => {
     const { container } = render(
       <PipelineStrip
         counts={{ queued: 0, extracting: 0, filling: 0, done: 0, failed: 0 }}
@@ -106,7 +106,7 @@ describe("PipelineStrip", () => {
 
   // The files still being read are a queue draining behind the work, not the
   // work: the batch is making tables from the moment it can make one.
-  it("moves to Data Processing the moment any file has a shape", () => {
+  it("moves to Processing Data the moment any file has a shape", () => {
     const { container } = render(
       <PipelineStrip
         counts={{ queued: 2, extracting: 0, filling: 0, done: 0, failed: 0 }}
