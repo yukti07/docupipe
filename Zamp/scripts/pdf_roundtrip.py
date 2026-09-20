@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "python" / "shared" / "src"))
 #: What the workers default to, and what the deployed convert worker is pinned
 #: to. A roundtrip on a different model is a roundtrip against a different
 #: product, so this is stated rather than inherited.
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 
 
 def load_dotenv() -> None:

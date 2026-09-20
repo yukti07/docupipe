@@ -102,7 +102,7 @@ class GeminiClient:
     access logs, none of which are under this class's control.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-3.8-flash", *, temperature: float = 0.0,
+    def __init__(self, api_key: str, model: str = "gemini-3.5-flash", *, temperature: float = 0.0,
                  max_output_tokens: int = 8192, max_retries: int = 3, timeout_seconds: int = 60,
                  sleep: Callable[[float], None] = time.sleep):
         self.api_key, self.model = api_key, model
