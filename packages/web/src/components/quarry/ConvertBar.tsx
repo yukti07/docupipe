@@ -7,7 +7,6 @@ import { GatedButton } from "@/components/common/GatedButton"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { Failure } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
-import { cn } from "@/lib/utils"
 
 export type PrepareProgress = {
   uploaded: number
@@ -28,7 +27,6 @@ export type PrepareProgress = {
  * the authority on that, so the reason it gives is the reason shown.
  */
 export function ConvertBar({
-  readySchemaCount,
   convertAvailable,
   convertBlockedReason,
   converting,
@@ -39,7 +37,6 @@ export function ConvertBar({
   onConvert,
   className,
 }: {
-  readySchemaCount: number
   convertAvailable: boolean
   convertBlockedReason: string | null
   converting?: boolean
@@ -57,11 +54,7 @@ export function ConvertBar({
   // Review is a route change, and leaving Prepare mid-upload abandons the rows
   // still going up — their bytes only live in this screen's state, and coming
   // back rebuilds the list from what the server has already confirmed.
-  const reviewReason = progress?.uploading
-    ? "Wait for the uploads to finish"
-    : readySchemaCount === 0
-      ? "No schemas ready yet"
-      : null
+  const reviewReason = progress?.uploading ? "Wait for the uploads to finish" : null
   // No local override: the server's gate is arrival, not inspection, so it is
   // already open while shapes are still coming back.
   const convertReason = converting
@@ -91,22 +84,20 @@ export function ConvertBar({
                 strokeWidth={2}
               />
             )}
-            {/* Two clocks, two lines: the bytes going up, and the shapes
-                coming back. Announced as they change, never focused. */}
+            {/* One clock: the bytes going up. Announced as it changes, never
+                focused. */}
             <div aria-live="polite" className="min-w-0">
               <p className="truncate text-[13px] font-medium tabular-nums">
                 {uploadLine(progress)}
               </p>
-              <p
-                className={cn(
-                  "truncate text-[12px] tabular-nums",
-                  stalled ? "text-review" : "text-muted-foreground",
-                )}
-              >
-                {stalled
-                  ? "Taking longer than expected — you can convert without waiting."
-                  : schemaLine(progress)}
-              </p>
+              {/* Only when something is wrong. The count of shapes back was
+                  here, and it was a number nobody could act on: reviewing and
+                  converting are both open whatever it says. */}
+              {stalled && (
+                <p className="truncate text-[12px] text-review">
+                  Taking longer than expected — you can convert without waiting.
+                </p>
+              )}
             </div>
           </>
         ) : undefined
@@ -147,8 +138,3 @@ function uploadLine({ uploaded, total, uploading, inFlight }: PrepareProgress): 
   return done
 }
 
-function schemaLine(progress: PrepareProgress): string {
-  const { schemas, total, withoutShape } = progress
-  const missing = withoutShape > 0 ? ` · ${formatCount(withoutShape)} without a shape` : ""
-  return `${formatCount(schemas)} of ${formatCount(total)} schemas back${missing}`
-}

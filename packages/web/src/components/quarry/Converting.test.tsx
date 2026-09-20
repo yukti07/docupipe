@@ -186,10 +186,9 @@ describe("TableList", () => {
 })
 
 describe("ConvertBar", () => {
-  it("carries the batch's two clocks and a bar of its own", () => {
+  it("counts the bytes going up, and puts a bar of its own over them", () => {
     render(
       <ConvertBar
-        readySchemaCount={1}
         convertAvailable={false}
         convertBlockedReason="2 files are still reading their shape."
         progress={{
@@ -206,7 +205,9 @@ describe("ConvertBar", () => {
       />,
     )
     expect(screen.getByText("3 of 3 uploaded")).toBeVisible()
-    expect(screen.getByText("1 of 3 schemas back")).toBeVisible()
+    // The count of shapes back used to sit under this line. Nothing on the
+    // screen is gated on it any more, so it was a number nobody could act on.
+    expect(screen.queryByText(/schemas back/)).not.toBeInTheDocument()
     expect(screen.getByRole("progressbar", { name: "Uploading this batch" })).toHaveAttribute(
       "aria-valuenow",
       "100",
@@ -216,7 +217,6 @@ describe("ConvertBar", () => {
   it("keeps what has landed apart from what is still going up", () => {
     render(
       <ConvertBar
-        readySchemaCount={0}
         convertAvailable={false}
         convertBlockedReason={null}
         progress={{
@@ -233,13 +233,11 @@ describe("ConvertBar", () => {
       />,
     )
     expect(screen.getByText("1 of 3 uploaded · 1 going up")).toBeVisible()
-    expect(screen.getByText("0 of 3 schemas back")).toBeVisible()
   })
 
   it("gates Convert on the server's answer and repeats its reason", () => {
     render(
       <ConvertBar
-        readySchemaCount={34}
         convertAvailable={false}
         convertBlockedReason="7 files are still reading their shape."
         reviewHref="/request/req_test/schemas"
@@ -254,23 +252,11 @@ describe("ConvertBar", () => {
     ).toBeDisabled()
   })
 
-  it("opens Review Schemas as soon as any one shape is ready", () => {
-    const { rerender } = render(
+  // The review screen shows the shapes it has and a card per file it is still
+  // reading, so opening it before any of them are back is a real screen.
+  it("opens Review Schemas before a single shape is back", () => {
+    render(
       <ConvertBar
-        readySchemaCount={0}
-        convertAvailable={false}
-        convertBlockedReason="Nothing uploaded yet."
-        reviewHref="/request/req_test/schemas"
-        onConvert={vi.fn()}
-      />,
-    )
-    // Nothing to review: a dead button, not a link to an empty screen.
-    expect(screen.getByRole("button", { name: /Review Schemas/ })).toBeDisabled()
-    expect(screen.queryByRole("link", { name: /Review Schemas/ })).not.toBeInTheDocument()
-
-    rerender(
-      <ConvertBar
-        readySchemaCount={1}
         convertAvailable={false}
         convertBlockedReason="Nothing uploaded yet."
         reviewHref="/request/req_test/schemas"
@@ -289,7 +275,6 @@ describe("ConvertBar", () => {
     // screen it would leave — coming back rebuilds the list without them.
     render(
       <ConvertBar
-        readySchemaCount={1}
         convertAvailable={false}
         convertBlockedReason="Nothing uploaded yet."
         progress={{
@@ -315,7 +300,6 @@ describe("ConvertBar", () => {
     const onConvert = vi.fn()
     const { user } = render(
       <ConvertBar
-        readySchemaCount={41}
         convertAvailable
         convertBlockedReason={null}
         reviewHref="/request/req_test/schemas"
@@ -331,7 +315,6 @@ describe("ConvertBar", () => {
   it("re-states a refused gate rather than showing a generic error", () => {
     const { container } = render(
       <ConvertBar
-        readySchemaCount={41}
         convertAvailable={false}
         convertBlockedReason="7 files are still reading their shape."
         failure={{ class: "gate_not_met", message: "7 files are still reading their shape." }}

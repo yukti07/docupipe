@@ -203,14 +203,15 @@ describe("the prepare screen", () => {
     expect(seen.uploadCalls).toEqual([1, 1, 1])
   })
 
-  it("counts uploads and shapes as two clocks on the footer", async () => {
+  it("counts the uploads on the footer, and nothing about the shapes", async () => {
     mockBackend()
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf")]))
     await renderBatch()
 
     expect(await screen.findByText("2 of 2 uploaded")).toBeVisible()
-    // One entry came back for one of the two files, so one file has its shape.
-    expect(screen.getByText("1 of 2 schemas back")).toBeVisible()
+    // Neither button waits on the shapes, so a count of them was a number
+    // nobody could act on.
+    expect(screen.queryByText(/schemas back/)).not.toBeInTheDocument()
   })
 
   it("keeps a rejected file on screen with its reason, and uploads the rest", async () => {
@@ -222,24 +223,27 @@ describe("the prepare screen", () => {
     await waitFor(() => expect(seen.confirmed).toHaveLength(1))
   })
 
-  it("keeps the eye present but gated while that file's schema is still coming", async () => {
-    mockBackend({ entries: [], pending: 2, convertAvailable: false, convertBlockedReason: "2 files are still reading their shape." })
+  // A row is a record of the file — what it is, how it went up, what shapes it
+  // gave back. Editing one is Review Schemas' job, over the whole batch at once.
+  it("puts no schema control on a row, and opens Review Schemas anyway", async () => {
+    mockBackend({
+      entries: [],
+      pending: 2,
+      convertAvailable: false,
+      convertBlockedReason: "2 files are still reading their shape.",
+    })
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
     await renderBatch()
 
-    expect(await screen.findByRole("button", { name: "Loading schema" })).toBeDisabled()
-  })
-
-  it("opens the schema in a panel beside the list, not over it", async () => {
-    mockBackend()
-    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
-    const { user } = await renderBatch()
-
-    await user.click(await screen.findByRole("button", { name: "Open schema" }))
-    const panel = screen.getByRole("complementary", { name: "Schema" })
-    expect(within(panel).getByText("invoice_number")).toBeVisible()
-    // The list is still there beside it.
-    expect(screen.getAllByText("invoice-1043.pdf").length).toBeGreaterThan(1)
+    await screen.findByText("invoice-1043.pdf")
+    expect(screen.queryByRole("button", { name: /schema/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("complementary", { name: "Schema" })).not.toBeInTheDocument()
+    // Not one shape is back, and the way to review them is open regardless —
+    // that screen shows a card per file it is still reading.
+    expect(screen.getByRole("link", { name: "Review Schemas" })).toHaveAttribute(
+      "href",
+      `/request/${REQUEST}/schemas`,
+    )
   })
 
   it("repeats the server's reason on the gate, and refuses to convert early", async () => {
@@ -273,7 +277,7 @@ describe("the prepare screen", () => {
     )
   })
 
-  it("says a file has no table rather than that it is still reading", async () => {
+  it("keeps a file with no table on the list rather than dropping it", async () => {
     mockBackend({
       entries: [
         {
@@ -290,9 +294,12 @@ describe("the prepare screen", () => {
     stageForRequest(REQUEST, stageFiles([file("scan-0091.pdf")]))
     await renderBatch()
 
-    expect(
-      await screen.findByRole("button", { name: "No table was found in this file" }),
-    ).toBeDisabled()
+    // It reads no shape, so it carries no shape line — and it is still a row,
+    // because it is still a file that was dropped. Its name is on the row and
+    // again in the panel of files that won't convert, which is where the
+    // reason lives now that the row has no control to hang it on.
+    expect((await screen.findAllByText("scan-0091.pdf")).length).toBeGreaterThan(0)
+    expect(screen.getByText("Couldn't find a table in this one.")).toBeVisible()
   })
 
   it("names an unconvertible file and still lets the batch convert", async () => {
@@ -316,51 +323,6 @@ describe("the prepare screen", () => {
     expect(await screen.findByText(/1 file won't convert/)).toBeVisible()
     expect(screen.getByText(/images with no readable text/)).toBeVisible()
     expect(screen.getByRole("button", { name: /^Convert/ })).toBeEnabled()
-  })
-
-  it("sends one entry per affected (fileId, schemaId) when applying to all", async () => {
-    let saved: { files: { fileId: string; schemaId: string }[] } | null = null
-    mockBackend({
-      entries: [
-        schemaEntry(),
-        schemaEntry({ fileId: "file_2", fileName: "invoice-1044.pdf", schemaId: "sch_32" }),
-      ],
-    })
-    server.use(
-      http.post("/api/updateSchema", async ({ request }) => {
-        saved = (await request.json()) as typeof saved
-        return HttpResponse.json({
-          status: "ok",
-          updated: saved!.files.map((f) => ({ schemaId: f.schemaId, version: 2 })),
-        })
-      }),
-    )
-    stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf"), file("invoice-1044.pdf")]))
-    const { user } = await renderBatch()
-
-    await user.click((await screen.findAllByRole("button", { name: "Open schema" }))[0])
-    const panel = screen.getByRole("complementary", { name: "Schema" })
-
-    await user.click(within(panel).getByRole("combobox", { name: "Type of total" }))
-    await user.click(screen.getByRole("option", { name: "currency" }))
-    await user.click(within(panel).getByRole("button", { name: "Save" }))
-    await user.click(await within(panel).findByRole("button", { name: "Update matching tables" }))
-    // The menu portals out of the panel, so it is found on the screen.
-    await user.click(screen.getByRole("menuitem", { name: /Update all matching tables/ }))
-    await user.click(screen.getByRole("button", { name: "Update 1 table" }))
-
-    await waitFor(() => expect(saved).not.toBeNull())
-    expect(saved!.files).toHaveLength(2)
-    expect(saved!.files.map((f) => `${f.fileId}:${f.schemaId}`).sort()).toEqual([
-      "file_1:sch_31",
-      "file_2:sch_32",
-    ])
-    // The same edited field list goes to each of them.
-    for (const entry of saved!.files as unknown as {
-      schema: { fields: { key: string; type: string }[] }
-    }[]) {
-      expect(entry.schema.fields.find((f) => f.key === "total")?.type).toBe("currency")
-    }
   })
 
   it("retries only the row whose Retry was pressed", async () => {
@@ -406,7 +368,8 @@ describe("the prepare screen", () => {
     await renderBatch()
 
     expect(await screen.findByText("Upload failed")).toBeVisible()
-    expect(screen.queryByRole("button", { name: /Open schema|Loading schema/ })).not.toBeInTheDocument()
+    const row = screen.getByText("invoice-1043.pdf").closest<HTMLElement>("[data-state]")!
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Retry"])
   })
 
   it("names a worksheet that gave nothing, without failing the workbook", async () => {
@@ -438,7 +401,7 @@ describe("the prepare screen", () => {
     expect(screen.getByRole("button", { name: /^Convert/ })).toBeEnabled()
   })
 
-  it("gives a many-table file one button, and names every table on its row", async () => {
+  it("names every table a many-table file gave up, on the file's own row", async () => {
     mockBackend({
       entries: [
         schemaEntry({ schemaId: "sch_1", schema: { ...schemaEntry().schema!, tableLabel: "table 1" } }),
@@ -447,22 +410,15 @@ describe("the prepare screen", () => {
       ],
     })
     stageForRequest(REQUEST, stageFiles([file("invoice-1043.pdf")]))
-    const { user } = await renderBatch()
+    await renderBatch()
 
-    const edit = await screen.findByRole("button", { name: "Open 3 tables" })
-    // One row, one button — never one per table.
-    expect(screen.getAllByRole("button", { name: /Open 3 tables/ })).toHaveLength(1)
-    // Each table named on the row, with its own field count.
+    // Three tables, one row, each named with its own field count — counted
+    // table by table, because a total would be a number nothing has.
     expect(
       await screen.findByText(
         /table 1 · \d+ fields · table 2 · \d+ fields · table 3 · \d+ fields/,
       ),
     ).toBeVisible()
-
-    await user.click(edit)
-    const panel = screen.getByRole("complementary", { name: "Schema" })
-    expect(within(panel).getAllByRole("tab")).toHaveLength(3)
-    expect(within(panel).getByRole("tab", { name: "table 3" })).toBeVisible()
   })
 
   it("shows the files that landed before a reload, without their bytes", async () => {
@@ -484,9 +440,9 @@ describe("the prepare screen", () => {
 
     expect((await screen.findAllByText("invoice-1043.pdf")).length).toBeGreaterThan(0)
     expect(screen.queryByText("Nothing staged in this browser")).not.toBeInTheDocument()
-    // Its shape is already being read on the server, so it settles from the
-    // poll — and the eye, not the row, is what says so.
-    expect(await screen.findByRole("button", { name: "Open schema" })).toBeEnabled()
+    // Its shape was already being read on the server, so the poll settles it
+    // and the row says which tables came back.
+    expect(await screen.findByText(/fields/)).toBeVisible()
   })
 
   it("does not poll for schemas before the server has been told the request exists", async () => {
@@ -744,7 +700,7 @@ describe("the files a converted batch was built from", () => {
     await screen.findByText("invoice-1043.pdf")
 
     expect(screen.getByText(/has been converted/)).toBeVisible()
-    expect(screen.getByRole("link", { name: "Back to results" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Go to results" })).toHaveAttribute(
       "href",
       `/request/${REQUEST}`,
     )
@@ -760,7 +716,8 @@ describe("the files a converted batch was built from", () => {
       "data-state",
       "current",
     )
-    expect(screen.getByText("Converted")).toBeVisible()
+    // The gate is behind everything by now, so the rail has dropped it.
+    expect(container.querySelector('[data-step="convert"]')).toBeNull()
     expect(screen.getByRole("link", { name: "Results" })).toBeVisible()
   })
 

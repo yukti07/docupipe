@@ -16,10 +16,8 @@ import { FailureMessage } from "@/components/quarry/FailureMessage"
 import { FileActions } from "@/components/quarry/FileActions"
 import { FileList } from "@/components/quarry/FileList"
 import { FileRow, type FileRowState } from "@/components/quarry/FileRow"
-import { FileSchemaPanel } from "@/components/quarry/FileSchemaPanel"
 import { PausedBanner } from "@/components/quarry/PausedBanner"
 import { PipelineStrip } from "@/components/quarry/PipelineStrip"
-import { SchemaEditButton, type SchemaEditState } from "@/components/quarry/SchemaEditButton"
 import { StatusSentence } from "@/components/quarry/StatusSentence"
 import { TableList } from "@/components/quarry/TableList"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
@@ -27,12 +25,7 @@ import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
 import { forgetCached, readCachedResult } from "@/lib/cache"
 import { formatCount } from "@/lib/format"
-import {
-  allShapesSettled,
-  updateTargetsFor,
-  type SchemaState,
-  type TableFailure,
-} from "@/lib/schema"
+import { allShapesSettled, type SchemaState, type TableFailure } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch, type BatchFile } from "@/state/batch"
 import { forgetFiles } from "@/state/batchFiles"
@@ -132,13 +125,8 @@ function Prepare({
   const batch = useBatch(requestId, userId)
   const router = useRouter()
   const { removeBatch } = useWorkspace()
-  // Keyed by file, never by table: one row opens one panel, whatever it holds.
-  const [openFileId, setOpenFileId] = useState<string | null>(null)
   const [converting, setConverting] = useState(false)
   const [convertFailure, setConvertFailure] = useState<Failure | null>(null)
-
-  const openFile = batch.files.find((f) => f.fileId && f.fileId === openFileId) ?? null
-  const openSchemas = batch.schemas.filter((s) => s.fileId === openFileId)
 
   async function convert() {
     setConverting(true)
@@ -208,24 +196,6 @@ function Prepare({
       current="files"
       done={prepareDone}
       phase={phase}
-      panelWidth={460}
-      panelLabel="Schema"
-      closePanelOnPressOutside
-      onClosePanel={() => setOpenFileId(null)}
-      panel={
-        openFileId && openSchemas.length > 0 ? (
-          <FileSchemaPanel
-            fileName={openFile?.name ?? openSchemas[0].fileName}
-            schemas={openSchemas}
-            frozen={frozen}
-            targetsFor={(schema) => updateTargetsFor(batch.schemas, schema)}
-            onClose={() => setOpenFileId(null)}
-            onSave={(schemaId, fields, alsoApplyTo) =>
-              batch.saveSchema(schemaId, fields, alsoApplyTo)
-            }
-          />
-        ) : null
-      }
       footer={
         frozen ? (
           <BatchFooter
@@ -236,13 +206,12 @@ function Prepare({
             }
             actions={
               <Button asChild className="h-10 rounded-[10px] text-[13px]">
-                <Link href={`/request/${requestId}`}>Back to results</Link>
+                <Link href={`/request/${requestId}`}>Go to results</Link>
               </Button>
             }
           />
         ) : (
           <ConvertBar
-            readySchemaCount={batch.schemas.length}
             convertAvailable={batch.convertAvailable}
             convertBlockedReason={batch.convertBlockedReason}
             converting={converting}
@@ -304,15 +273,6 @@ function Prepare({
                     : undefined
                 }
                 detail={shapeDetail(file, batch.schemas, batch.emptyTables)}
-                trailing={
-                  <FileEditButton
-                    file={file}
-                    schemas={batch.schemas}
-                    wontConvert={batch.wontConvert}
-                    stalled={batch.schemasStalled}
-                    onOpen={setOpenFileId}
-                  />
-                }
               />
             ))}
           </FileList>
@@ -327,21 +287,7 @@ function Prepare({
   )
 }
 
-/** The row says what the upload is doing. The button says what the schema is doing. */
 const rowState = (file: BatchFile): FileRowState => UPLOAD_STAGE[file.stage]
-
-/** What this file's schema is doing, which is the only thing the button can mean. */
-function editState(
-  file: BatchFile,
-  schemas: SchemaState[],
-  wontConvert: { fileId: string }[],
-  stalled?: boolean,
-): SchemaEditState {
-  if (file.fileId && schemas.some((s) => s.fileId === file.fileId)) return "ready"
-  if (file.stage !== "uploaded") return "uploading"
-  if (file.fileId && wontConvert.some((w) => w.fileId === file.fileId)) return "none"
-  return stalled ? "stalled" : "loading"
-}
 
 /**
  * Every table this file gave up, each with its own field count, on the row the
@@ -367,37 +313,6 @@ function shapeDetail(
     ...mine.map((s) => `${s.tableLabel} · ${formatCount(s.current.length)} fields`),
     ...empty.map((t) => `${t.tableLabel} · nothing usable`),
   ].join(" · ")
-}
-
-/**
- * One button per row. A file that did not upload has Retry instead and no
- * button at all — a dead control beside a live one only crowds the live one out.
- */
-function FileEditButton({
-  file,
-  schemas,
-  wontConvert,
-  stalled,
-  onOpen,
-}: {
-  file: BatchFile
-  schemas: SchemaState[]
-  wontConvert: { fileId: string }[]
-  /** The poll gave up; this file's schema is not on its way any more. */
-  stalled?: boolean
-  onOpen: (fileId: string) => void
-}) {
-  if (file.stage === "failed" || file.stage === "rejected") return null
-
-  const mine = schemas.filter((s) => s.fileId === file.fileId)
-
-  return (
-    <SchemaEditButton
-      state={editState(file, schemas, wontConvert, stalled)}
-      tableCount={mine.length}
-      onOpen={() => file.fileId && onOpen(file.fileId)}
-    />
-  )
 }
 
 /**
