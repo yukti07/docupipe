@@ -24,8 +24,8 @@ export type FileRowState =
   | "failed"
   | "uploaded"
   // S04
-  | "waiting"
-  | "running"
+  | "detecting"
+  | "converting"
   | "done"
   | "convert-failed"
   | "paused"
@@ -43,10 +43,14 @@ const STATES: Record<
   uploading: { label: "Uploading", variant: "working" },
   failed: { label: "Upload failed", variant: "error" },
   uploaded: { label: "Uploaded", variant: "success" },
-  // The batch is already being worked through, so a queued file is waiting for
-  // its turn rather than sitting still: it spins, quietly, in the muted tone.
-  waiting: { label: "Waiting", variant: "neutral", icon: Loader2 },
-  running: { label: "Running", variant: "working" },
+  // Two words cover the whole of the far side of the gate. The worker's own
+  // stages — queued, extracting, filling — are its business: from here a file
+  // is having its shape read, or having its table filled, and a row that named
+  // the stage was asking a reader to learn a pipeline to find out whether
+  // anything was wrong. Detecting is the quieter of the two, because nothing
+  // has been asked of the file yet beyond being read.
+  detecting: { label: "Detecting", variant: "neutral", icon: Loader2 },
+  converting: { label: "Converting", variant: "working" },
   done: { label: "Done", variant: "success" },
   // Distinct from `failed`, which is an upload that did not land.
   "convert-failed": { label: "Couldn't convert it", variant: "error" },

@@ -503,8 +503,11 @@ describe("the prepare screen", () => {
     expect(screen.queryByText("Converting your files")).not.toBeInTheDocument()
 
     // The wait moves onto the rows: each one says what it is doing and spins
-    // while it waits its turn.
-    expect(screen.getAllByText("Waiting")).toHaveLength(2)
+    // while it waits its turn. One word covers all of it — queued, extracting
+    // and filling are the worker's business, not the reader's.
+    expect(screen.getAllByText("Converting")).toHaveLength(2)
+    expect(screen.queryByText("Waiting")).not.toBeInTheDocument()
+    expect(screen.queryByText("Running")).not.toBeInTheDocument()
 
     // And then it eases off: the worker has minutes of work before any of those
     // stages change, and one poll has already said everything there is to say.
@@ -630,6 +633,224 @@ describe("the prepare screen", () => {
   })
 })
 
+/**
+ * Convert is not gated on shapes, so pressing it with half the batch still
+ * being read is ordinary — and the server has no table to report for a file it
+ * has not finished reading. This browser has the names, which is the whole
+ * difference between a screen with six files on it and a screen with one.
+ */
+describe("the results screen, before every shape is back", () => {
+  const remember = (files: { fileId: string; fileName: string }[]) =>
+    localStorage.setItem(
+      `quarry.batch.${REQUEST}.files`,
+      JSON.stringify(
+        files.map((f) => ({
+          ...f,
+          fileLocation: f.fileName,
+          size: 32,
+          filePath: `${PUT_URL}/0`,
+          expiresAt: "2026-09-14T11:05:00Z",
+        })),
+      ),
+    )
+
+  const partial = (over: Record<string, unknown> = {}) => ({
+    userId: "usr_1",
+    requestId: REQUEST,
+    status: "CONVERTING",
+    pausedUntil: null,
+    counts: { queued: 0, extracting: 0, filling: 0, done: 0, failed: 0 },
+    rowsSoFar: 0,
+    estimatedSecondsRemaining: null,
+    allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
+    files: [],
+    ...over,
+  })
+
+  it("names every file it is still reading rather than showing an empty list", async () => {
+    mockBackend({ result: partial() })
+    remember([
+      { fileId: "file_1", fileName: "invoice-1043.pdf" },
+      { fileId: "file_2", fileName: "invoice-1044.pdf" },
+    ])
+    await renderBatch("converting")
+
+    expect(await screen.findByText("invoice-1043.pdf")).toBeVisible()
+    expect(screen.getByText("invoice-1044.pdf")).toBeVisible()
+    expect(screen.getAllByText("Detecting")).toHaveLength(2)
+  })
+
+  it("stands on Schema Detection until one of them has a table", async () => {
+    mockBackend({ result: partial() })
+    remember([{ fileId: "file_1", fileName: "invoice-1043.pdf" }])
+    const { container } = await renderBatch("converting")
+
+    await screen.findByText("invoice-1043.pdf")
+    expect(container.querySelector('[data-stage="detect"]')).toHaveAttribute("data-active")
+    expect(container.querySelector('[data-stage="detect"] [data-count]')).toHaveTextContent("1")
+  })
+
+  it("counts the files without a table into the batch total, not out of it", async () => {
+    mockBackend({
+      result: partial({
+        counts: { queued: 1, extracting: 0, filling: 0, done: 0, failed: 0 },
+        files: [
+          { fileId: "file_1", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+        ],
+      }),
+    })
+    remember([
+      { fileId: "file_1", fileName: "invoice-1043.pdf" },
+      { fileId: "file_2", fileName: "invoice-1044.pdf" },
+    ])
+    const { container } = await renderBatch("converting")
+
+    // "0 of 1 done" above two rows would be a screen arguing with itself.
+    expect(await screen.findByText(/0 of 2 done/)).toBeVisible()
+    // And the one that is already being worked on is what the strip stands on.
+    expect(container.querySelector('[data-stage="process"]')).toHaveAttribute("data-active")
+  })
+
+  it("puts the one count line in the footer, and does not repeat it over the table", async () => {
+    mockBackend({
+      result: partial({
+        status: "COMPLETED",
+        counts: { queued: 0, extracting: 0, filling: 0, done: 1, failed: 0 },
+        rowsSoFar: 22,
+        files: [
+          {
+            fileId: "file_1",
+            fileName: "invoice-1043.pdf",
+            schemaId: "sch_31",
+            stage: "DONE",
+            rowCount: 22,
+          },
+        ],
+      }),
+    })
+    const { container } = await renderBatch("done")
+
+    const line = await screen.findByText(/1 of 1 done/)
+    expect(container.querySelector("footer")).toContainElement(line)
+    // The tally it replaced said the same thing in a second set of numbers.
+    expect(screen.queryByText(/rows so far/)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/1 of 1 done/)).toHaveLength(1)
+  })
+
+  it("does not count a file the server gave up on among the ones it is reading", async () => {
+    // No shape means no table, and no table means the result poll has nothing
+    // to say about that file at all. Left to the count of names it would spin
+    // a row for the rest of the run.
+    localStorage.setItem(`quarry.batch.${REQUEST}.unreadable`, JSON.stringify(["file_2"]))
+    mockBackend({
+      result: partial({
+        counts: { queued: 1, extracting: 0, filling: 0, done: 0, failed: 0 },
+        files: [
+          { fileId: "file_1", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+        ],
+      }),
+    })
+    remember([
+      { fileId: "file_1", fileName: "invoice-1043.pdf" },
+      { fileId: "file_2", fileName: "scan-0091.pdf" },
+    ])
+    await renderBatch("converting")
+
+    expect(await screen.findByText("invoice-1043.pdf")).toBeVisible()
+    expect(screen.queryByText("scan-0091.pdf")).not.toBeInTheDocument()
+    expect(screen.queryByText("Detecting")).not.toBeInTheDocument()
+    expect(screen.getByText(/0 of 1 done/)).toBeVisible()
+  })
+
+  // The result poll has nothing to say about a file with no shape, so the only
+  // way to tell one apart from a file still being read is to ask for the
+  // shapes. What this browser wrote before the gate cannot cover it: the schema
+  // poll that records it stops the moment this screen replaces Prepare, and
+  // converting before every shape is back is the whole flow these rows are for.
+  it("asks for the shapes, so a file the server gave up on is not shown as reading", async () => {
+    mockBackend({
+      entries: [
+        schemaEntry({
+          fileId: "file_2",
+          fileName: "scan-0091.pdf",
+          schemaId: null,
+          status: "failed",
+          schema: null,
+          failure: { class: "format_corrupt", message: "Not a PDF." },
+        }),
+      ],
+      result: partial({
+        counts: { queued: 1, extracting: 0, filling: 0, done: 0, failed: 0 },
+        files: [
+          { fileId: "file_1", fileName: "invoice-1043.pdf", schemaId: "sch_31", stage: "QUEUED" },
+        ],
+      }),
+    })
+    remember([
+      { fileId: "file_1", fileName: "invoice-1043.pdf" },
+      { fileId: "file_2", fileName: "scan-0091.pdf" },
+    ])
+    await renderBatch("converting")
+
+    expect(await screen.findByText("invoice-1043.pdf")).toBeVisible()
+    await waitFor(() => expect(screen.queryByText("Detecting")).not.toBeInTheDocument())
+    expect(screen.queryByText("scan-0091.pdf")).not.toBeInTheDocument()
+  })
+
+  it("stops naming files without tables once the batch has finished", async () => {
+    // Nothing the server never answered for is still being read by then, and a
+    // row that spins forever is worse than one that is not there.
+    mockBackend({
+      result: partial({
+        status: "COMPLETED",
+        counts: { queued: 0, extracting: 0, filling: 0, done: 1, failed: 0 },
+        files: [
+          {
+            fileId: "file_1",
+            fileName: "invoice-1043.pdf",
+            schemaId: "sch_31",
+            stage: "DONE",
+            rowCount: 4,
+          },
+        ],
+      }),
+    })
+    remember([
+      { fileId: "file_1", fileName: "invoice-1043.pdf" },
+      { fileId: "file_2", fileName: "invoice-1044.pdf" },
+    ])
+    await renderBatch("done")
+
+    expect(await screen.findByText("invoice-1043.pdf")).toBeVisible()
+    expect(screen.queryByText("invoice-1044.pdf")).not.toBeInTheDocument()
+    expect(screen.queryByText("Detecting")).not.toBeInTheDocument()
+  })
+})
+
+describe("a poll that fails before anything has landed", () => {
+  // These two screens used to answer a failed poll with a banner. It was
+  // removed; the guards that deferred to it were not, and each left a screen
+  // that renders nothing at all rather than saying so.
+  it("keeps the results screen saying something while the first poll is failing", async () => {
+    mockBackend()
+    server.use(http.post("/api/polling/result", () => new HttpResponse(null, { status: 500 })))
+    const { container } = await renderBatch("converting")
+
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Reading the state of this batch" })).toBeVisible(),
+    )
+    expect(container.querySelector("main")).not.toBeEmptyDOMElement()
+  })
+
+  it("keeps the prepare screen saying something when the schema poll fails", async () => {
+    mockBackend({ entries: [] })
+    server.use(http.post("/api/polling/schema", () => new HttpResponse(null, { status: 500 })))
+    await renderBatch()
+
+    expect(await screen.findByText("Nothing staged in this browser")).toBeVisible()
+  })
+})
+
 describe("Prepare — the batch nav", () => {
   const step = (container: HTMLElement, id: string) =>
     container.querySelector(`[data-step="${id}"]`)
@@ -644,7 +865,10 @@ describe("Prepare — the batch nav", () => {
 
     await waitFor(() => expect(step(container, "files")).toHaveAttribute("data-state", "current"))
     expect(step(container, "schemas")).toHaveAttribute("data-state", "upcoming")
-    expect(step(container, "convert")).toHaveAttribute("data-state", "locked")
+    // The gate is not a place in the rail. Shapes are still coming back, and
+    // nobody on this screen has asked to watch them come.
+    expect(step(container, "convert")).toBeNull()
+    expect(screen.queryByText("detecting")).not.toBeInTheDocument()
   })
 
   it("ticks Schemas once every file has settled a shape, without leaving Files", async () => {
@@ -664,7 +888,8 @@ describe("Prepare — the batch nav", () => {
     const { container } = await renderBatch()
 
     await waitFor(() => expect(step(container, "schemas")).toHaveAttribute("data-state", "done"))
-    expect(step(container, "convert")?.querySelector("a")).toBeNull()
+    expect(step(container, "convert")).toBeNull()
+    expect(screen.queryByText("Convert", { selector: "nav *" })).not.toBeInTheDocument()
   })
 })
 
@@ -716,8 +941,10 @@ describe("the files a converted batch was built from", () => {
       "data-state",
       "current",
     )
-    // The gate is behind everything by now, so the rail has dropped it.
+    // The gate was never a place in the rail, and the waits either side of it
+    // are over.
     expect(container.querySelector('[data-step="convert"]')).toBeNull()
+    expect(screen.queryByText("converting")).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Results" })).toBeVisible()
   })
 

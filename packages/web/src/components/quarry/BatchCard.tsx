@@ -1,13 +1,26 @@
 import Link from "next/link"
 import { StatusBadge } from "@/components/common/StatusBadge"
-import { formatClock, formatCount, formatEta } from "@/lib/format"
+import { formatCount, formatStamp } from "@/lib/format"
 import type { WorkspaceBatch } from "@/state/workspace"
 import { cn } from "@/lib/utils"
 
-/** Six states, and the card says which one it is in words as well as in colour. */
+/**
+ * One batch in the history: when it was dropped, what came out of it, and
+ * where it got to.
+ *
+ * It is headed by the time rather than by a name because the name was never
+ * one. A drop of loose files was called "Batch of 20 Sep", which is the date
+ * written twice and badly; a dropped folder took the folder's name, so two
+ * drops of the same folder were two identical cards. The stamp is the one
+ * thing that is always true and always different.
+ */
 export function BatchCard({ batch, className }: { batch: WorkspaceBatch; className?: string }) {
-  const { summary } = batch
+  const { summary, phase } = batch
   const failed = summary.failed ?? 0
+  const toCheck = summary.toCheck ?? 0
+  // "Nothing usable" already says every one of them failed; the count beneath
+  // it would be the same fact with a number on it.
+  const notes = phase !== "failed" && failed > 0
 
   return (
     <Link
@@ -18,77 +31,56 @@ export function BatchCard({ batch, className }: { batch: WorkspaceBatch; classNa
       )}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-medium">{batch.name}</p>
-        <p className="mt-0.5 text-[12.5px] tabular-nums text-muted-foreground">
-          {formatCount(batch.fileCount)} {batch.fileCount === 1 ? "file" : "files"} ·{" "}
-          {new Date(batch.createdAt).toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
-          })}
+        <p className="truncate text-[14px] font-medium tabular-nums">
+          {formatStamp(batch.createdAt)}
+        </p>
+        <p className="mt-0.5 truncate text-[12.5px] tabular-nums text-muted-foreground">
+          {contents(batch)}
         </p>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <Badges batch={batch} failed={failed} />
-        <p className="text-[12px] tabular-nums text-subtle-foreground">
-          <Detail batch={batch} />
-        </p>
-      </div>
+      {/* The status, and nothing beside it. The counts that used to sit under
+          these chips were the same numbers as the line on the left, arranged
+          differently — two readings of one batch, on one card.
+
+          Two rows rather than one: where a batch got to is the thing you scan
+          a list of these for, so its chip holds the same right edge on every
+          card. Set beside it, a "1 failed" pushed Done left and broke the
+          column exactly on the cards worth finding. What went wrong is worth
+          saying — under it, where it reads as a note on that status rather
+          than as a second one. */}
+      <span className="flex shrink-0 flex-col items-end gap-1.5">
+        {phase === "prepare" && <StatusBadge variant="neutral">Awaiting your schemas</StatusBadge>}
+        {phase === "converting" && <StatusBadge variant="working">Converting</StatusBadge>}
+        {phase === "paused" && <StatusBadge variant="paused">Paused</StatusBadge>}
+        {/* C3 — the accent marks completion; a finished chip is neutral. */}
+        {phase === "done" && <StatusBadge variant="neutral">Done</StatusBadge>}
+        {phase === "failed" && <StatusBadge variant="error">Nothing usable</StatusBadge>}
+
+        {(notes || toCheck > 0) && (
+          <span className="flex items-center gap-1.5">
+            {notes && <StatusBadge variant="error">{formatCount(failed)} failed</StatusBadge>}
+            {toCheck > 0 && (
+              <StatusBadge variant="review">{formatCount(toCheck)} to check</StatusBadge>
+            )}
+          </span>
+        )}
+      </span>
     </Link>
   )
 }
 
-function Badges({ batch, failed }: { batch: WorkspaceBatch; failed: number }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      {batch.phase === "prepare" && <StatusBadge variant="neutral">Awaiting your schemas</StatusBadge>}
-      {batch.phase === "converting" && <StatusBadge variant="working">Converting</StatusBadge>}
-      {batch.phase === "paused" && <StatusBadge variant="paused">Paused</StatusBadge>}
-      {/* C3 — the accent marks completion; a finished chip is neutral. */}
-      {batch.phase === "done" && <StatusBadge variant="neutral">Done</StatusBadge>}
-      {batch.phase === "failed" && <StatusBadge variant="error">Nothing usable</StatusBadge>}
-      {batch.phase !== "failed" && failed > 0 && (
-        <StatusBadge variant="error">
-          {formatCount(failed)} failed
-        </StatusBadge>
-      )}
-      {(batch.summary.toCheck ?? 0) > 0 && (
-        <StatusBadge variant="review">{formatCount(batch.summary.toCheck ?? 0)} to check</StatusBadge>
-      )}
-    </span>
-  )
-}
-
-function Detail({ batch }: { batch: WorkspaceBatch }) {
-  const { summary } = batch
-
-  if (batch.phase === "prepare") {
-    return <>{formatCount(batch.fileCount)} waiting on you</>
-  }
-
-  if (batch.phase === "paused") {
-    return summary.pausedUntil ? (
-      <>picking up again at {formatClock(summary.pausedUntil)}</>
-    ) : (
-      <>waiting on a limit</>
-    )
-  }
-
-  if (batch.phase === "converting") {
-    const eta = formatEta(summary.etaSeconds ?? null)
-    return (
-      <>
-        {formatCount(summary.tables ?? 0)} of {formatCount(batch.fileCount)} done
-        {eta ? ` · ${eta}` : ""}
-      </>
-    )
-  }
-
-  if (batch.phase === "failed") return <>none of these could be read</>
-
-  return (
-    <>
-      {formatCount(summary.rows ?? 0)} rows across {formatCount(summary.tables ?? 0)} tables
-    </>
-  )
+/**
+ * What the batch holds — files, then the tables and rows they became.
+ *
+ * Each part appears only once there is one: a batch that has not converted has
+ * no tables to count, and a zero there would read as a batch that produced
+ * nothing rather than one that has not been asked to yet.
+ */
+function contents(batch: WorkspaceBatch): string {
+  const { tables = 0, rows = 0 } = batch.summary
+  const parts = [`${formatCount(batch.fileCount)} ${batch.fileCount === 1 ? "file" : "files"}`]
+  if (tables > 0) parts.push(`${formatCount(tables)} ${tables === 1 ? "table" : "tables"}`)
+  if (rows > 0) parts.push(`${formatCount(rows)} ${rows === 1 ? "row" : "rows"}`)
+  return parts.join(" · ")
 }

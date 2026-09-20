@@ -16,17 +16,18 @@ export function ConvertingSkeleton() {
       aria-label="Reading the state of this batch"
       className="flex flex-col gap-6"
     >
-      <div
-        className="grid items-center gap-0"
-        style={{ gridTemplateColumns: "1fr 44px 1fr 44px 1fr 44px 1fr" }}
-      >
-        {[0, 1, 2, 3].map((stage) => (
-          <div key={stage} className="contents">
-            {stage > 0 && <span aria-hidden className="mx-2 block h-px bg-border-faint" />}
-            <div className="flex flex-col items-center gap-1.5 rounded-xl border border-border-faint bg-card px-3 py-2.5">
-              <Bar className="h-[17px]" width={28} />
-              <Bar className="h-[11.5px]" width={56} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[0, 1, 2].map((stage) => (
+          <div
+            key={stage}
+            className="flex items-center gap-3 rounded-xl border border-border-faint bg-card px-3.5 py-3"
+          >
+            <Bar className="size-8 rounded-lg" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Bar className="h-[13px]" width={104} />
+              <Bar className="h-[11.5px]" width={72} />
             </div>
+            <Bar className="h-[19px] shrink-0" width={16} />
           </div>
         ))}
       </div>

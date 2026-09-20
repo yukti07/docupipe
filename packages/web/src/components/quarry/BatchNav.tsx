@@ -1,4 +1,4 @@
-import { Check, Lock } from "lucide-react"
+import { Check } from "lucide-react"
 import Link from "next/link"
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
@@ -11,14 +11,14 @@ export function railPhase(phase: WorkspacePhase | undefined): BatchPhase {
   return "converting"
 }
 
-/** Convert is a milestone rather than a destination, so it is not in here. */
+/** Three screens, and nothing in the rail that is not one of them. */
 export type BatchScreen = "files" | "schemas" | "results"
 
 /** Which side of the gate the batch is on, and whether it is still crossing. */
 export type BatchPhase = "prepare" | "converting" | "converted"
 
-type StepId = BatchScreen | "convert"
-type StepState = "done" | "current" | "upcoming" | "locked"
+type StepId = BatchScreen
+type StepState = "done" | "current" | "upcoming"
 
 export type BatchNavProps = {
   requestId: string
@@ -26,12 +26,19 @@ export type BatchNavProps = {
   current: BatchScreen
   done: { files: boolean; schemas: boolean }
   phase: BatchPhase
+  /**
+   * Shapes are still coming back, on a screen that asked for them. It is not
+   * read off the batch: the marker is the answer to pressing Review Schemas,
+   * and a rail that showed it on Files would be narrating a screen nobody
+   * opened.
+   */
+  detecting?: boolean
   /** A screen underneath Results — "Merge", or a filename. */
   tail?: ReactNode
 }
 
 /**
- * Where you are in one batch, as four steps around the one gate in the product.
+ * Where you are in one batch, as three steps and the waits between them.
  *
  * Stateless by design: the two halves of a batch read from different sources —
  * `useBatch` before the gate, `useResultPolling` after — so each screen works
@@ -41,34 +48,39 @@ export type BatchNavProps = {
  * Uploading every file does not move the rail to Schemas; pressing Review
  * schemas does. Otherwise the rail would announce a screen change that had not
  * happened, and pressing Drop more files would appear to walk it backwards.
+ *
+ * Between the steps sit the two waits — detecting, converting — and each is
+ * there only while it is actually happening. They are not steps: there is no
+ * screen behind either of them, nothing ticks them, and the moment the work
+ * they name is finished they leave the rail rather than settling into it as a
+ * milestone with a padlock on it.
  */
-export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProps) {
-  // Four labelled steps plus the rules between them do not fit beside a tail
+export function BatchNav({ requestId, current, done, phase, detecting, tail }: BatchNavProps) {
+  // Three labelled steps plus the rules between them do not fit beside a tail
   // below `lg`. The labels give way to it, since the tail is the most specific
   // thing on its screen — they stay in the accessibility tree, so nothing is
   // lost to anyone reading the bar aloud.
   const labelClass = tail ? "sr-only lg:not-sr-only" : undefined
+  // The gate is being crossed right now. Named between Schemas and Results for
+  // exactly as long as that is true.
   const converting = phase === "converting"
-  // Convert is the gate, and a gate is only worth naming while it is still
-  // ahead of you or being crossed. Once the batch has results it is a padlock
-  // between two steps that says nothing the Results step does not.
-  const steps = phase === "converted" ? STEPS.filter((s) => s.id !== "convert") : STEPS
 
   return (
     <nav aria-label="Batch" className="min-w-0">
       <ol className="flex min-w-0 items-center gap-1">
-        {steps.map(({ id, path }, index) => {
+        {STEPS.map(({ id, path }, index) => {
           const state = stateOf(id, { current, done, phase })
           // A table and the merge screen both live *inside* Results, so the
           // step stays lit while you are on one — and stays a link, because it
           // is the way back up out of it. Everywhere else, the lit step is
           // where you already are and linking it would go nowhere.
           const here = state === "current" && !(id === "results" && tail)
-          // Convert has no screen at all, and nothing past the gate has one
-          // until the gate is crossed.
+          // Nothing past the gate has a screen until the gate is crossed.
           const href = !here && path ? path(requestId, phase) : null
-          const label = labelOf(id, phase)
+          const label = LABELS[id]
           const ticked = isTicked(id, state, phase)
+          // The wait that leads *into* this step, in place of the plain rule.
+          const marker = id === "schemas" ? detecting : id === "results" ? converting : false
 
           return (
             <li
@@ -78,25 +90,20 @@ export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProp
               aria-current={here ? "step" : undefined}
               className="contents"
             >
-              {/* The two rules either side of Convert carry the wait: while the
-                  batch is converting they are marching dashes, which is the
-                  whole of the animation the rail does. */}
-              {index > 0 && (
-                <Connector
-                  lit={state !== "upcoming"}
-                  // The two rules touching Convert — the one it is reached by
-                  // and the one it leads to — and no others.
-                  marching={converting && index >= 2}
-                />
-              )}
+              {index > 0 &&
+                (marker ? (
+                  <Marker label={id === "schemas" ? "detecting" : "converting"} />
+                ) : (
+                  <Connector lit={state !== "upcoming"} />
+                ))}
               {href ? (
                 <Link href={href} className={cn(CHIP[state], "hover:text-foreground", LINK_FOCUS)}>
-                  <Marker id={id} state={state} ticked={ticked} />
+                  <Dot state={state} ticked={ticked} />
                   <span className={labelClass}>{label}</span>
                 </Link>
               ) : (
                 <span className={CHIP[state]}>
-                  <Marker id={id} state={state} ticked={ticked} />
+                  <Dot state={state} ticked={ticked} />
                   <span className={labelClass}>{label}</span>
                 </span>
               )}
@@ -109,10 +116,10 @@ export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProp
             <span aria-hidden className="px-0.5 text-border">
               /
             </span>
-            {/* The thing actually open, given the same chip as the steps — it
-                is the most specific place in the bar, and reading as loose text
-                beside four chips made it look like a caption on them. */}
-            <span className="min-w-0 truncate rounded-full bg-muted px-2.5 py-1 text-[13px] font-medium text-foreground">
+            {/* The thing actually open. Plain text rather than a chip of its
+                own: it is a name, not a state, and given the same pill as the
+                steps it read as a fourth step in the rail. */}
+            <span className="min-w-0 truncate px-0.5 text-[13px] text-subtle-foreground">
               {tail}
             </span>
           </li>
@@ -130,10 +137,15 @@ const STEPS: { id: StepId; path: ((id: string, phase: BatchPhase) => string | nu
     path: (id, phase) => (phase === "prepare" ? `/request/${id}` : `/request/${id}?view=files`),
   },
   { id: "schemas", path: (id) => `/request/${id}/schemas` },
-  { id: "convert", path: null },
   // Only a batch that has been converted has results to go back to.
   { id: "results", path: (id, phase) => (phase === "prepare" ? null : `/request/${id}`) },
 ]
+
+const LABELS: Record<StepId, string> = {
+  files: "Files",
+  schemas: "Schemas",
+  results: "Results",
+}
 
 const BASE =
   "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-colors"
@@ -142,25 +154,15 @@ const CHIP: Record<StepState, string> = {
   done: `${BASE} bg-muted text-subtle-foreground`,
   current: `${BASE} bg-primary-tint font-medium text-foreground`,
   upcoming: `${BASE} text-muted-foreground`,
-  locked: `${BASE} text-muted-foreground`,
 }
 
 const LINK_FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 
-/** Convert is the only step whose name changes, and it names the gate's state. */
-function labelOf(id: StepId, phase: BatchPhase): string {
-  if (id !== "convert") return id === "files" ? "Files" : id === "schemas" ? "Schemas" : "Results"
-  return phase === "prepare" ? "Convert" : phase === "converting" ? "Converting" : "Converted"
-}
-
 function stateOf(
   id: StepId,
-  { current, done, phase }: Omit<BatchNavProps, "requestId">,
+  { current, done, phase }: Pick<BatchNavProps, "current" | "done" | "phase">,
 ): StepState {
-  // Convert is never somewhere you are and never somewhere you can go. It is
-  // locked on both sides of itself, which is what the padlock says.
-  if (id === "convert") return "locked"
   // A tail means the screen is underneath Results rather than Results itself.
   // The step still reads as where you are — you are inside it — and the tail
   // beside it says which part of it.
@@ -181,7 +183,7 @@ function stateOf(
  * standing on Schemas with a finished batch next door, an empty circle on
  * Results says the opposite of what is true.
  */
-function Marker({ id, state, ticked }: { id: StepId; state: StepState; ticked: boolean }) {
+function Dot({ state, ticked }: { state: StepState; ticked: boolean }) {
   return (
     <span
       aria-hidden
@@ -189,14 +191,10 @@ function Marker({ id, state, ticked }: { id: StepId; state: StepState; ticked: b
         "grid size-[18px] shrink-0 place-items-center rounded-full",
         state === "current" && "bg-primary",
         ticked && "bg-primary-tint-strong text-primary",
-        state === "done" && !ticked && "border border-border-subtle",
-        state === "upcoming" && "border border-border-subtle",
-        state === "locked" && "bg-muted text-muted-foreground",
+        !ticked && state !== "current" && "border border-border-subtle",
       )}
     >
-      {id === "convert" ? (
-        <Lock className="size-2.5" strokeWidth={2.2} />
-      ) : state === "current" ? (
+      {state === "current" ? (
         <span className="size-1.5 rounded-full bg-primary-foreground" />
       ) : ticked ? (
         <Check className="size-3" strokeWidth={2.4} />
@@ -209,17 +207,33 @@ function Marker({ id, state, ticked }: { id: StepId; state: StepState; ticked: b
 const isTicked = (id: StepId, state: StepState, phase: BatchPhase) =>
   state === "done" && (id !== "results" || phase === "converted")
 
-function Connector({ lit, marching }: { lit: boolean; marching: boolean }) {
+/**
+ * A wait, between two steps. Lower case and in the mono face, so it reads as a
+ * machine saying what it is doing rather than as a fourth place to go.
+ */
+function Marker({ label }: { label: string }) {
+  return (
+    <span data-marker={label} className="flex shrink-0 items-center gap-2 px-1">
+      <Rule />
+      <span className="font-mono text-[12.5px] lowercase tracking-[-0.01em] text-muted-foreground">
+        {label}
+      </span>
+      <Rule />
+    </span>
+  )
+}
+
+const Rule = () => (
+  <span aria-hidden className="rail-crawl hidden h-[2px] w-9 shrink-0 rounded-full sm:block" />
+)
+
+function Connector({ lit }: { lit: boolean }) {
   return (
     <span
       aria-hidden
       className={cn(
         "hidden h-px w-8 shrink-0 lg:block",
-        marching
-          ? "rail-dashes"
-          : lit
-            ? "bg-primary-tint-strong"
-            : "bg-border-faint",
+        lit ? "bg-primary-tint-strong" : "bg-border-faint",
       )}
     />
   )

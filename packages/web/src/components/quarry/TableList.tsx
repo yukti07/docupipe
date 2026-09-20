@@ -10,12 +10,15 @@ import { formatCount } from "@/lib/format"
 import type { ReactNode } from "react"
 
 const STAGE: Record<ResultEntry["stage"], FileRowState> = {
-  QUEUED: "waiting",
-  EXTRACTING: "running",
-  FILLING: "running",
+  QUEUED: "converting",
+  EXTRACTING: "converting",
+  FILLING: "converting",
   DONE: "done",
   FAILED: "convert-failed",
 }
+
+/** A file the server has not answered for yet — a name, and nothing else. */
+export type AwaitingFile = { fileId: string; fileName: string }
 
 function detail(entry: ResultEntry): string | undefined {
   if (entry.stage === "DONE") {
@@ -24,11 +27,12 @@ function detail(entry: ResultEntry): string | undefined {
     if (entry.toCheckCount) parts.push(`${formatCount(entry.toCheckCount)} to check`)
     return parts.join(" · ")
   }
+  // How far through it is, when the worker has said. The stage itself is not
+  // repeated here: the row already says Converting, and "filling the table"
+  // beside it was the same fact in the worker's words.
   if (entry.progress) {
     return `${entry.progress.unit} ${formatCount(entry.progress.at)} of ${formatCount(entry.progress.of)}`
   }
-  if (entry.stage === "EXTRACTING") return "reading the pages"
-  if (entry.stage === "FILLING") return "filling the table"
   return undefined
 }
 
@@ -40,10 +44,18 @@ function detail(entry: ResultEntry): string | undefined {
 export function TableList({
   requestId,
   entries,
+  awaiting = [],
   summary,
 }: {
   requestId: string
   entries: ResultEntry[]
+  /**
+   * Files that are in this batch but have no table yet, in the order they were
+   * dropped. Convert is not gated on shapes, so pressing it before they are all
+   * back is ordinary — and a screen that listed only the tables would show an
+   * eight-file batch as two rows and say nothing about the other six.
+   */
+  awaiting?: AwaitingFile[]
   summary?: ReactNode
 }) {
   return (
@@ -84,6 +96,11 @@ export function TableList({
             ) : undefined
           }
         />
+      ))}
+      {/* Under the tables, so a shape landing never pushes a row that is
+          already being watched further down the screen. */}
+      {awaiting.map((file) => (
+        <FileRow key={`awaiting:${file.fileId}`} name={file.fileName} state="detecting" />
       ))}
     </FileList>
   )

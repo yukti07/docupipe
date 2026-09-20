@@ -129,10 +129,12 @@ export function DownloadAllDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <span>
+          {/* The same height as Merge beside it. Two footer buttons of
+              different heights read as two different kinds of control. */}
           <GatedButton
             reason={reason}
             variant="outline"
-            className="h-8 gap-1.5 rounded-lg bg-card text-[12.5px]"
+            className="h-10 gap-1.5 rounded-[10px] bg-card text-[13px]"
           >
             <Download aria-hidden className="size-3.5" />
             Download all · {formatCount(rows)} rows

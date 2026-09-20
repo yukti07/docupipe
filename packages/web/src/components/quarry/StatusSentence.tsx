@@ -7,11 +7,15 @@ import { cn } from "@/lib/utils"
  * including the two nobody wants to write: a pause, and a batch where nothing
  * could be read at all.
  */
-export function statusSentence(result: ResultPollResponse): string {
+export function statusSentence(result: ResultPollResponse, awaiting = 0): string {
   const { counts } = result
-  const total = counts.queued + counts.extracting + counts.filling + counts.done + counts.failed
+  // Files with no table yet count into both figures. They are in the batch —
+  // the rows for them are on screen — so leaving them out would print "2 of 2
+  // done" above eight rows, six of which are still being read.
+  const total =
+    counts.queued + counts.extracting + counts.filling + counts.done + counts.failed + awaiting
   const toCheck = result.files.reduce((sum, file) => sum + (file.toCheckCount ?? 0), 0)
-  const waiting = counts.queued + counts.extracting + counts.filling
+  const waiting = counts.queued + counts.extracting + counts.filling + awaiting
 
   const done = `${formatCount(counts.done)} of ${formatCount(total)} done`
 
@@ -36,9 +40,12 @@ export function statusSentence(result: ResultPollResponse): string {
 
 export function StatusSentence({
   result,
+  awaiting = 0,
   className,
 }: {
   result: ResultPollResponse
+  /** Files in this batch the server has not answered for yet. */
+  awaiting?: number
   className?: string
 }) {
   return (
@@ -46,7 +53,7 @@ export function StatusSentence({
       aria-live="polite"
       className={cn("text-[13px] tabular-nums text-subtle-foreground", className)}
     >
-      {statusSentence(result)}
+      {statusSentence(result, awaiting)}
     </p>
   )
 }

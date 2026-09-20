@@ -10,6 +10,8 @@ export type BatchShellProps = {
   current: BatchScreen
   done: { files: boolean; schemas: boolean }
   phase: BatchPhase
+  /** Shapes are still coming back on this screen — the rail says so, in between. */
+  detecting?: boolean
   /** A screen underneath Results — "Merge", or a filename. */
   tail?: ReactNode
   children: ReactNode
@@ -39,6 +41,7 @@ export function BatchShell({
   current,
   done,
   phase,
+  detecting,
   tail,
   children,
   footer,
@@ -85,7 +88,14 @@ export function BatchShell({
   return (
     <div className="flex h-dvh min-h-0 flex-col">
       <AppHeader>
-        <BatchNav requestId={requestId} current={current} done={done} phase={phase} tail={tail} />
+        <BatchNav
+          requestId={requestId}
+          current={current}
+          done={done}
+          phase={phase}
+          detecting={detecting}
+          tail={tail}
+        />
       </AppHeader>
 
       {/* The body and the panel share one row, and the footer sits below both.

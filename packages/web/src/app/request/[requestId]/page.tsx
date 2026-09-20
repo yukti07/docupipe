@@ -2,13 +2,12 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { use, useEffect, useMemo, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { BatchFooter } from "@/components/common/BatchFooter"
 import { BatchShell } from "@/components/common/BatchShell"
 import { EmptyState } from "@/components/common/EmptyState"
 import { GatedButton } from "@/components/common/GatedButton"
 import { railPhase, type BatchPhase } from "@/components/quarry/BatchNav"
-import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { ConvertBar } from "@/components/quarry/ConvertBar"
 import { ConvertingSkeleton } from "@/components/quarry/ConvertingSkeleton"
 import { DownloadAllDialog } from "@/components/quarry/DownloadAllDialog"
@@ -19,17 +18,25 @@ import { FileRow, type FileRowState } from "@/components/quarry/FileRow"
 import { PausedBanner } from "@/components/quarry/PausedBanner"
 import { PipelineStrip } from "@/components/quarry/PipelineStrip"
 import { StatusSentence } from "@/components/quarry/StatusSentence"
-import { TableList } from "@/components/quarry/TableList"
+import { TableList, type AwaitingFile } from "@/components/quarry/TableList"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
+import { api } from "@/lib/api"
 import type { Failure } from "@/lib/api/types"
 import { forgetCached, readCachedResult } from "@/lib/cache"
 import { formatCount } from "@/lib/format"
-import { allShapesSettled, type SchemaState, type TableFailure } from "@/lib/schema"
-import { ensureSession } from "@/lib/session"
-import { useBatch, type BatchFile } from "@/state/batch"
-import { forgetFiles } from "@/state/batchFiles"
 import {
+  allShapesSettled,
+  partitionFailures,
+  type SchemaState,
+  type TableFailure,
+} from "@/lib/schema"
+import { ensureSession } from "@/lib/session"
+import { useAsync } from "@/lib/useAsync"
+import { useBatch, type BatchFile } from "@/state/batch"
+import { forgetFiles, readRememberedFiles, readUnreadable } from "@/state/batchFiles"
+import {
+  batchPatch,
   RESULT_WARMUP_MS,
   useConversionProbe,
   useResultPolling,
@@ -228,9 +235,10 @@ function Prepare({
     >
       <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-6 py-6">
         {batch.failure && <FailureMessage failure={batch.failure} />}
-        {batch.schemaPollFailure && <ConnectionStatus failure={batch.schemaPollFailure} />}
-
-        {batch.files.length === 0 && batch.schemas.length === 0 && !batch.schemaPollFailure && (
+        {/* Not gated on the poll having succeeded. A failed poll used to be
+            answered by a banner above this; without one, gating here leaves a
+            screen that says nothing at all. */}
+        {batch.files.length === 0 && batch.schemas.length === 0 && (
           <EmptyState
             title="Nothing staged in this browser"
             body="This batch was started somewhere else, or the page was reloaded mid-upload. Anything that reached the server is listed as its shape comes back."
@@ -361,56 +369,89 @@ function Converting({
   // answer this browser already has.
   const lastKnown = useMemo(() => readCachedResult(requestId), [requestId])
 
+  // Every file this browser confirmed into the batch, by name. Convert is not
+  // gated on shapes (see `convert` in the convert service), so pressing it
+  // before they are all back is ordinary — and until a file has a shape the
+  // server has no table to report for it. These names are what stands in for
+  // the missing rows, which is the difference between a screen with eight
+  // files on it and a screen with two.
+  const dropped = useMemo(() => readRememberedFiles(requestId), [requestId])
+
+  // And the ones the server answered for with a reason instead of a shape. The
+  // result poll says nothing at all about those — no shape means no table to
+  // report — so without them they would be mistaken for files still being read
+  // and spin a row apiece for the rest of the run.
+  //
+  // Two sources, because neither is enough on its own. What this browser wrote
+  // before the gate covers the files that had already failed inspection; it
+  // cannot cover the ones that fail after Convert is pressed, because the
+  // schema poll that records them stops the moment this screen replaces
+  // Prepare — and converting before every shape is back is exactly the flow
+  // these rows exist for. So the shapes are asked for once more here.
+  const noted = useMemo(() => readUnreadable(requestId), [requestId])
+  const { data: shapes } = useAsync(
+    userId ? `${userId}:${requestId}:shapes` : "",
+    useCallback(
+      (signal: AbortSignal) =>
+        userId
+          ? api.pollSchemas(userId, requestId, [], signal)
+          : Promise.reject(new Error("no session yet")),
+      [requestId, userId],
+    ),
+  )
+  const unreadable = useMemo(
+    () =>
+      new Set([
+        ...noted,
+        ...(shapes ? partitionFailures(shapes.files).files.map((f) => f.fileId) : []),
+      ]),
+    [noted, shapes],
+  )
+
   const poll = useResultPolling(requestId, userId, {
     // Recomputed on every render, so the gap after each poll is what is
     // actually left of the window rather than a figure fixed at mount.
     warmupMs: remainingWait(convertedAt),
-    onData: (data) => {
-      const toCheck = data.files.reduce((sum, f) => sum + (f.toCheckCount ?? 0), 0)
-      onPhase(requestId, {
-        // Counted from the server's own list, so a batch this browser has just
-        // learned about gets a card that reads true.
-        fileCount: data.files.length,
-        phase:
-          data.status === "PAUSED"
-            ? "paused"
-            : data.status === "COMPLETED"
-              ? "done"
-              : data.status === "FAILED"
-                ? "failed"
-                : "converting",
-        summary: {
-          tables: data.counts.done,
-          rows: data.rowsSoFar,
-          failed: data.counts.failed,
-          toCheck,
-          etaSeconds: data.estimatedSecondsRemaining,
-          pausedUntil: data.pausedUntil,
-        },
-      })
-    },
+    // The same reading of a poll the workspace makes when it catches up a card
+    // by itself, so a batch watched here and a batch refreshed on the list
+    // cannot end up described two different ways.
+    onData: (data) => onPhase(requestId, batchPatch(data)),
   })
 
   const result = poll.data ?? lastKnown
   const finished = result?.status === "COMPLETED" || result?.status === "FAILED"
   const nothingUsable = result ? result.counts.done === 0 && finished : false
 
+  // The files with no table of their own yet. A finished batch has none by
+  // definition — whatever the server never answered for, it is not still
+  // reading — so the list empties itself rather than stranding a row that
+  // spins forever.
+  const awaiting: AwaitingFile[] = useMemo(() => {
+    if (!result || finished) return []
+    const known = new Set(result.files.map((entry) => entry.fileId))
+    return dropped
+      .filter((file) => !known.has(file.fileId) && !unreadable.has(file.fileId))
+      .map((file) => ({ fileId: file.fileId, fileName: file.fileName }))
+  }, [dropped, finished, result, unreadable])
+
   return (
     <BatchShell
       requestId={requestId}
       current="results"
       done={{ files: true, schemas: true }}
-      // The rail's dashes march between Convert and Results until the last
-      // file has landed; after that the step is a padlock reading "Converted".
+      // The rail says "converting" between Schemas and Results until the last
+      // file has landed, and then stops saying it.
       phase={finished ? "converted" : "converting"}
       footer={
         <BatchFooter
           status={
+            // The one honest line about this batch, in the one place every
+            // batch screen puts what it is. It used to sit above the table as
+            // well as here in another form — two lines of counts to reconcile
+            // for one list — and the rows-so-far tally it replaces is on the
+            // workspace card and in Download all already.
             result ? (
-              <span className="text-[12.5px] tabular-nums text-subtle-foreground">
-                {formatCount(result.rowsSoFar)} rows so far across{" "}
-                {formatCount(result.counts.done)} tables
-              </span>
+              <StatusSentence result={result} awaiting={awaiting.length} className="text-[12.5px]" />
             ) : undefined
           }
           actions={
@@ -431,7 +472,7 @@ function Converting({
                         : null
                   }
                   hideReason
-                  className="bg-card"
+                  className="bg-card text-[13px]"
                 >
                   {finished && result.counts.done > 0 ? (
                     <Link href={`/request/${requestId}/merge`}>Merge</Link>
@@ -451,8 +492,10 @@ function Converting({
             still missing is the server's first answer. The rows it brings say
             Waiting with a spinner of their own, so there is no second
             full-screen state between the button and the batch. */}
-        {!result && !poll.failure && <ConvertingSkeleton />}
-        {poll.failure && <ConnectionStatus failure={poll.failure} />}
+        {/* Until the first answer lands, whatever the reason. A poll that has
+            failed is still a poll that is being retried, and the exhausted
+            notice below is what says when the retrying has stopped. */}
+        {!result && <ConvertingSkeleton />}
 
         {/* Out of polls with the batch still running. Saying nothing would
             leave a screen that has quietly stopped telling the truth. */}
@@ -478,9 +521,7 @@ function Converting({
               <PausedBanner pausedUntil={result.pausedUntil} allowance={result.allowance} />
             )}
 
-            <StatusSentence result={result} />
-
-            <PipelineStrip counts={result.counts} />
+            <PipelineStrip counts={result.counts} detecting={awaiting.length} />
 
             {nothingUsable ? (
               <EmptyState
@@ -489,7 +530,7 @@ function Converting({
               />
             ) : null}
 
-            <TableList requestId={requestId} entries={result.files} />
+            <TableList requestId={requestId} entries={result.files} awaiting={awaiting} />
           </>
         )}
       </main>

@@ -8,7 +8,6 @@ import { BatchShell } from "@/components/common/BatchShell"
 import { EmptyState } from "@/components/common/EmptyState"
 import { GatedButton } from "@/components/common/GatedButton"
 import { railPhase } from "@/components/quarry/BatchNav"
-import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import { PendingSchemaCard } from "@/components/quarry/PendingSchemaCard"
 import { SchemaEditor } from "@/components/quarry/SchemaEditor"
@@ -179,6 +178,12 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
         schemas: allShapesSettled(batch.schemas, batch.wontConvert, batch.acceptedCount),
       }}
       phase={phase}
+      // The rail says "detecting" between Files and Schemas for exactly as long
+      // as this screen is still filling up, and only here: pressing Review
+      // Schemas is what makes the wait something anyone is watching. A batch
+      // past the gate has nothing left to detect, whatever its first poll has
+      // answered yet.
+      detecting={reading && !frozen}
       panelWidth={460}
       panelLabel="Schema"
       // Pressing the page shuts the panel here too, the way it does on
@@ -269,8 +274,6 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
             </p>
           )}
         </div>
-
-        {batch.schemaPollFailure && <ConnectionStatus failure={batch.schemaPollFailure} />}
 
         {/* Only once nothing is outstanding. A screen with six files still
             being read has not failed to produce a schema; it is mid-sentence. */}

@@ -226,25 +226,26 @@
   }
 }
 
-/* The two rules either side of Convert, while the batch is being converted.
-   Dashes march forward at a steady rate and never fill: the server sends no
-   per-file percentage during a run, so a bar that filled would be inventing
-   one. The reduced-motion block above stops them dead. */
-@keyframes dash-march {
+/* The rules either side of a rail marker — "detecting", "converting". A short
+   segment travels along a pale track and runs off the end, which says work is
+   moving without claiming a fraction of it: the server sends no percentage
+   while a batch is being read. The reduced-motion block above parks the
+   segment, leaving a two-tone rule that still reads as a rule. */
+@keyframes rail-crawl {
+  from {
+    background-position-x: -25%;
+  }
   to {
-    background-position-x: 10px;
+    background-position-x: 125%;
   }
 }
 
-.rail-dashes {
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--primary-tint-strong) 0 4px,
-    transparent 4px 10px
-  );
-  background-size: 10px 1px;
-  background-repeat: repeat-x;
-  animation: dash-march 500ms linear infinite;
+.rail-crawl {
+  background-color: var(--primary-tint-strong);
+  background-image: linear-gradient(to right, var(--primary) 0 100%);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: rail-crawl 1.4s linear infinite;
 }
 
 /* The intro on the workspace: documents drift in from the left, pass the mark,

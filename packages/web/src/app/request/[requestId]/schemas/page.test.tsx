@@ -400,6 +400,37 @@ describe("Review schemas", () => {
   })
 })
 
+describe("the rail, while the shapes are coming back", () => {
+  it("names the wait between Files and Schemas, as a marker and not a step", async () => {
+    // Pressing Review Schemas is what makes the wait something anyone is
+    // watching. The marker is not a step: it has no screen and nothing ticks
+    // it, and it leaves the rail rather than settling into it as a milestone.
+    mockBackend([entry(1, INVOICE)], { pending: 2 })
+    const { container } = await renderReview()
+
+    expect(await screen.findByText("detecting")).toBeVisible()
+    expect(container.querySelector('[data-marker="detecting"]')).not.toBeNull()
+    expect(container.querySelector('[data-step="detecting"]')).toBeNull()
+  })
+
+  it("drops it once every shape is in", async () => {
+    mockBackend([entry(1, INVOICE)], { pending: 0 })
+    await renderReview()
+
+    await screen.findByText("1 schema to review")
+    expect(screen.queryByText("detecting")).not.toBeInTheDocument()
+  })
+
+  it("says nothing about detecting once the batch is past the gate", async () => {
+    mockBackend([entry(1, INVOICE)], { pending: 3 })
+    await renderReview("done")
+
+    await screen.findByText(/has been converted/)
+    expect(screen.queryByText("detecting")).not.toBeInTheDocument()
+  })
+})
+
+
 describe("the schemas a converted batch was read against", () => {
   it("shows them, and says they are a record rather than a form", async () => {
     mockBackend([entry(1, INVOICE)])

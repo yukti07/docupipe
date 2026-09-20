@@ -42,33 +42,49 @@ describe("BatchNav", () => {
     )
   })
 
-  it("never links Convert, because there is no screen behind it", () => {
+  // The gate used to hold a step of its own, padlocked on both sides and
+  // renamed as the batch crossed it. It was a place in the rail that was never
+  // anywhere you could be, and it outlived the work it named.
+  it("keeps three steps and no fourth place that is not a screen", () => {
     const { container } = render(
       <BatchNav requestId={REQUEST} current="files" done={settled} phase="prepare" />,
     )
-    expect(screen.queryByRole("link", { name: "Convert" })).not.toBeInTheDocument()
-    expect(stepState(container, "convert")).toBe("locked")
-  })
-
-  it("names the gate by what it is doing, and never by a number", () => {
-    const { rerender } = render(
-      <BatchNav requestId={REQUEST} current="files" done={settled} phase="prepare" />,
-    )
-    expect(screen.getByText("Convert")).toBeVisible()
-
-    rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converting" />)
-    expect(screen.getByText("Converting")).toBeVisible()
-  })
-
-  // Once the results are there the gate is behind everything and names nothing
-  // the Results step does not already say.
-  it("drops the gate entirely once the batch has converted", () => {
-    const { container } = render(
-      <BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />,
-    )
+    expect(container.querySelectorAll("li[data-step]")).toHaveLength(3)
     expect(container.querySelector('[data-step="convert"]')).toBeNull()
+    expect(screen.queryByText("Convert")).not.toBeInTheDocument()
     expect(screen.queryByText("Converted")).not.toBeInTheDocument()
-    expect(screen.getByText("Results")).toBeVisible()
+    expect(container.querySelector("svg.lucide-lock")).toBeNull()
+  })
+
+  it("names the crossing between Schemas and Results, and only while it lasts", () => {
+    const { container, rerender } = render(
+      <BatchNav requestId={REQUEST} current="results" done={settled} phase="converting" />,
+    )
+    expect(screen.getByText("converting")).toBeVisible()
+    expect(container.querySelector('[data-marker="converting"]')).not.toBeNull()
+
+    rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />)
+    expect(screen.queryByText("converting")).not.toBeInTheDocument()
+  })
+
+  // Pressing Review Schemas is what makes the wait something anyone is
+  // watching, so the screen that did it is the screen that says so.
+  it("names detecting between Files and Schemas, only when a screen asks for it", () => {
+    const { container, rerender } = render(
+      <BatchNav requestId={REQUEST} current="schemas" done={settled} phase="prepare" detecting />,
+    )
+    expect(screen.getByText("detecting")).toBeVisible()
+    expect(container.querySelector('[data-marker="detecting"]')).not.toBeNull()
+
+    rerender(<BatchNav requestId={REQUEST} current="schemas" done={settled} phase="prepare" />)
+    expect(screen.queryByText("detecting")).not.toBeInTheDocument()
+  })
+
+  it("animates the rules either side of a marker", () => {
+    const { container } = render(
+      <BatchNav requestId={REQUEST} current="schemas" done={settled} phase="prepare" detecting />,
+    )
+    expect(container.querySelectorAll(".rail-crawl")).toHaveLength(2)
   })
 
   it("ticks Results once the batch has results, and not before", () => {
@@ -100,19 +116,9 @@ describe("BatchNav", () => {
     const { container } = render(
       <BatchNav requestId={REQUEST} current="files" done={settled} phase="prepare" />,
     )
-    for (const digit of ["1", "2", "3", "4"]) {
+    for (const digit of ["1", "2", "3"]) {
       expect(container.querySelector("nav")).not.toHaveTextContent(new RegExp(`\\b${digit}\\b`))
     }
-  })
-
-  it("marches the rules either side of Convert only while it is converting", () => {
-    const { container, rerender } = render(
-      <BatchNav requestId={REQUEST} current="results" done={settled} phase="converting" />,
-    )
-    expect(container.querySelectorAll(".rail-dashes")).toHaveLength(2)
-
-    rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />)
-    expect(container.querySelectorAll(".rail-dashes")).toHaveLength(0)
   })
 
   it("leaves Results out of reach until there is something behind it", () => {
@@ -174,7 +180,7 @@ describe("BatchNav", () => {
     expect(screen.getByRole("link", { name: "Results" })).toBeVisible()
   })
 
-  it("gives the thing actually open a chip of its own", () => {
+  it("leaves the thing actually open as plain text, not a fourth chip", () => {
     const { container } = render(
       <BatchNav
         requestId={REQUEST}
@@ -185,8 +191,11 @@ describe("BatchNav", () => {
       />,
     )
     const name = screen.getByText("products.csv")
-    expect(name.className).toContain("rounded-full")
-    expect(name.className).toContain("bg-muted")
+    // A name is not a state. Given the steps' pill it read as a step, and
+    // given their weight it shouted over the one thing that is lit.
+    expect(name.className).not.toContain("bg-muted")
+    expect(name.className).not.toContain("rounded-full")
+    expect(name.className).not.toContain("font-medium")
     expect(stepEl(container, "tail")).toHaveAttribute("aria-current", "step")
   })
 

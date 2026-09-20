@@ -44,7 +44,7 @@ describe("S01 workspace", () => {
     registers()
     renderPage()
     expect(await within(card()).findByText("Drop your documents here")).toBeVisible()
-    await waitFor(() => expect(screen.getByText("No batches yet")).toBeVisible())
+    await waitFor(() => expect(screen.getByText("Nothing here yet")).toBeVisible())
   })
 
   it("opens on the intro the first time this browser lands here", async () => {
@@ -62,12 +62,72 @@ describe("S01 workspace", () => {
     expect(screen.queryByRole("dialog")).toBeNull()
   })
 
-  it("lists the batches this browser is holding", async () => {
+  it("lists the batches this browser is holding, under History", async () => {
     registers()
     localStorage.setItem("quarry.workspace", JSON.stringify([batch()]))
     renderPage()
-    expect(await screen.findByText("Q3 invoices")).toBeVisible()
+    // A card is headed by when it was dropped. The name it used to carry was
+    // either the date written twice or the folder's, which two drops share.
+    expect(await screen.findByText(/^September 14, 2026 · /)).toBeVisible()
+    expect(screen.getByRole("heading", { name: "History" })).toBeVisible()
     expect(screen.getByText("Awaiting your schemas")).toBeVisible()
+  })
+
+  // Every card is a note this browser wrote while it was watching that batch.
+  // Close the results screen before the last file lands and the note stops
+  // being true — a batch that finished with a failure in it goes on saying
+  // Converting, over counts from the moment the screen was closed.
+  it("catches up a card it last saw running, rather than trusting its own note", async () => {
+    registers()
+    let asked = 0
+    server.use(
+      http.post("/api/polling/result", () => {
+        asked += 1
+        return HttpResponse.json({
+          userId: "usr_1",
+          requestId: "req_a",
+          status: "COMPLETED",
+          pausedUntil: null,
+          counts: { queued: 0, extracting: 0, filling: 0, done: 5, failed: 1 },
+          rowsSoFar: 140,
+          estimatedSecondsRemaining: null,
+          allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
+          files: [],
+        })
+      }),
+    )
+    localStorage.setItem(
+      "quarry.workspace",
+      JSON.stringify([batch({ phase: "converting", fileCount: 6, summary: { tables: 2 } })]),
+    )
+    renderPage()
+
+    expect(await screen.findByText("Done")).toBeVisible()
+    expect(screen.getByText("1 failed")).toBeVisible()
+    expect(screen.getByText("6 files · 5 tables · 140 rows")).toBeVisible()
+    expect(screen.queryByText("Converting")).not.toBeInTheDocument()
+    // Once, on the way in. The workspace is a list of things already done, not
+    // a screen that re-asks about six batches every few seconds.
+    expect(asked).toBe(1)
+  })
+
+  it("leaves a settled card alone — there is nothing for it to catch up on", async () => {
+    registers()
+    let asked = 0
+    server.use(
+      http.post("/api/polling/result", () => {
+        asked += 1
+        return new HttpResponse(null, { status: 500 })
+      }),
+    )
+    localStorage.setItem(
+      "quarry.workspace",
+      JSON.stringify([batch({ phase: "done", summary: { tables: 41, rows: 612 } })]),
+    )
+    renderPage()
+
+    expect(await screen.findByText("Done")).toBeVisible()
+    expect(asked).toBe(0)
   })
 
   it("offers a retry, not a dead end, when the workspace cannot be registered", async () => {

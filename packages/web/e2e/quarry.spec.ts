@@ -97,7 +97,7 @@ test.describe("the spine, for real", () => {
     // the one only a real backend can make: anyone can build a pipeline that
     // processes on upload; the point is that this one does not.
     await expect(page.getByRole("button", { name: /^Convert/ })).toBeEnabled()
-    await expect(page.getByText(/Queued|Extracting|Done/)).toHaveCount(0)
+    await expect(page.getByText(/Schema Detection|Data Processing|Converting/)).toHaveCount(0)
 
     // An edit against a real schema row, saved through /api/updateSchema.
     await page.getByRole("button", { name: "Preview / Edit" }).first().click()

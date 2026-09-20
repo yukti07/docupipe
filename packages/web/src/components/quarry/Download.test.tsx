@@ -4,7 +4,6 @@ import { render, screen, waitFor } from "@/test/render"
 import { server } from "@/test/msw/server"
 import { api } from "@/lib/api"
 import type { ResultPollResponse, TableData } from "@/lib/api/types"
-import { ConnectionStatus } from "./ConnectionStatus"
 import { DownloadAllDialog } from "./DownloadAllDialog"
 import { DownloadTableButton } from "./DownloadTableButton"
 
@@ -159,24 +158,5 @@ describe("DownloadAllDialog", () => {
     await waitFor(() => expect(downloads.clicked).toHaveLength(2))
     expect(downloads.clicked.every((d) => d.name.endsWith(".tsv"))).toBe(true)
     downloads.restore()
-  })
-})
-
-describe("ConnectionStatus", () => {
-  it("shows nothing while the connection is fine", () => {
-    const { container } = render(<ConnectionStatus failure={null} />)
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it("says it is reconnecting and that the last known state is still shown", () => {
-    render(<ConnectionStatus failure={{ class: "network" }} />)
-    expect(screen.getByText(/Reconnecting. The last known state is still shown/)).toBeVisible()
-  })
-
-  it("says offline rather than implying what is on screen is current", () => {
-    Object.defineProperty(navigator, "onLine", { value: false, configurable: true })
-    render(<ConnectionStatus failure={null} />)
-    expect(screen.getByText(/it may have moved on since/)).toBeVisible()
-    Object.defineProperty(navigator, "onLine", { value: true, configurable: true })
   })
 })

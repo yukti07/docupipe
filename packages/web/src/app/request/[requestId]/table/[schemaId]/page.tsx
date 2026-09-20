@@ -80,8 +80,17 @@ export default function TablePage({
       // converted whether or not this browser watched it happen.
       phase={railPhase(batches.find((b) => b.requestId === requestId)?.phase ?? "done")}
       // The filename hangs off Results rather than standing alone, which is
-      // what gives this screen a way back to the batch it belongs to.
-      tail={<span className="font-mono">{table?.fileName ?? "Loading the table"}</span>}
+      // what gives this screen a way back to the batch it belongs to. Until it
+      // is known the rail says so instead — a state, in the rail's own voice —
+      // and a table that never opened has no name to put here at all, so the
+      // tail goes rather than sitting over the error saying it is still coming.
+      tail={
+        table ? (
+          <span className="font-mono">{table.fileName}</span>
+        ) : failure ? undefined : (
+          "Loading the table…"
+        )
+      }
       footer={
         // No Back: the rail's Results step is the way out, and a second one
         // beside Download would only be a second thing to read.
@@ -121,7 +130,10 @@ export default function TablePage({
             title="Couldn't open this table"
             body="The batch is still there. This one table didn't come back."
             onRetry={reload}
+            // Named for where it goes. The rail's tail is gone in this state —
+            // there is no table to name — so this is the way back out.
             backHref={`/request/${requestId}`}
+            backLabel="Back to the batch"
           />
         )}
 

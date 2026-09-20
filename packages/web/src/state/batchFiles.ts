@@ -20,6 +20,18 @@ export type RememberedFile = {
 const keyFor = (requestId: string) => `quarry.batch.${requestId}.files`
 
 /**
+ * Files the server has answered for with a reason rather than a shape.
+ *
+ * Kept apart from the list above because the two are read by different halves
+ * of the batch. Before the gate the file list is what the screen renders and
+ * these are named in the panel of files that will not convert; after it, the
+ * result poll returns nothing at all for a file with no shape — there is no
+ * table for it to report — so the results screen needs to know the difference
+ * between a file it is still waiting on and one that was never coming.
+ */
+const unreadableKeyFor = (requestId: string) => `quarry.batch.${requestId}.unreadable`
+
+/**
  * Only files that can actually be rendered after a reload are kept: one without
  * a fileId cannot be matched to anything the schema poll returns, so it would
  * sit on screen as a row nothing ever updates.
@@ -56,9 +68,33 @@ export function rememberFiles(requestId: string, files: RememberedFile[]) {
   }
 }
 
+/** Ids the schema poll has reported a file-level failure for. Merged, never replaced. */
+export function rememberUnreadable(requestId: string, fileIds: string[]) {
+  if (fileIds.length === 0) return
+  try {
+    const kept = new Set([...readUnreadable(requestId), ...fileIds])
+    localStorage.setItem(unreadableKeyFor(requestId), JSON.stringify([...kept]))
+  } catch {
+    // Losing the set costs a row that reads Detecting for the rest of a run.
+  }
+}
+
+export function readUnreadable(requestId: string): string[] {
+  try {
+    const raw = localStorage.getItem(unreadableKeyFor(requestId))
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((id): id is string => typeof id === "string")
+  } catch {
+    return []
+  }
+}
+
 export function forgetFiles(requestId: string) {
   try {
     localStorage.removeItem(keyFor(requestId))
+    localStorage.removeItem(unreadableKeyFor(requestId))
   } catch {
     // Nothing to do; the map is a convenience.
   }

@@ -70,29 +70,92 @@ describe("StatusSentence", () => {
 })
 
 describe("PipelineStrip", () => {
-  it("shows four stage counts that sum to the batch total, failures included", () => {
+  const stageValue = (container: HTMLElement, key: string) =>
+    container.querySelector(`[data-stage="${key}"] [data-count]`)?.textContent
+
+  it("folds the worker's five stages into the three the batch actually does", () => {
     const counts = { queued: 19, extracting: 1, filling: 1, done: 18, failed: 2 }
-    render(<PipelineStrip counts={counts} />)
-    const shown = ["19", "1", "1", "20"].map((n) => screen.getAllByText(n).length)
-    expect(shown.every((count) => count > 0)).toBe(true)
-    expect(screen.getByText("2 of them failed")).toBeVisible()
-    expect(screen.getByText(/41 tables in total/)).toBeInTheDocument()
+    const { container } = render(<PipelineStrip counts={counts} detecting={4} />)
+
+    // Queued, extracting and filling are one thing from the outside: a table
+    // is being made. The stages are named for what is happening, not for the
+    // worker's own vocabulary.
+    expect(screen.getByText("Schema Detection")).toBeVisible()
+    expect(screen.getByText("Data Processing")).toBeVisible()
+    expect(screen.getByText("Done")).toBeVisible()
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument()
+    expect(screen.queryByText("Extracting")).not.toBeInTheDocument()
+    expect(screen.queryByText("Filling")).not.toBeInTheDocument()
+
+    expect(stageValue(container, "detect")).toBe("4")
+    expect(stageValue(container, "process")).toBe("21")
+    expect(stageValue(container, "done")).toBe("20")
+    expect(screen.getByText(/45 tables in total/)).toBeInTheDocument()
   })
 
-  it("lights two stages at once, because two are genuinely running", () => {
+  it("stands on Schema Detection before one table exists", () => {
     const { container } = render(
-      <PipelineStrip counts={{ queued: 0, extracting: 1, filling: 1, done: 0, failed: 0 }} />,
+      <PipelineStrip
+        counts={{ queued: 0, extracting: 0, filling: 0, done: 0, failed: 0 }}
+        detecting={6}
+      />,
     )
-    expect(container.querySelectorAll("[data-active]")).toHaveLength(2)
+    expect(container.querySelectorAll("[data-active]")).toHaveLength(1)
+    expect(container.querySelector('[data-stage="detect"]')).toHaveAttribute("data-active")
   })
 
-  it("leaves the motion to motion-safe so the counts still update under reduced motion", () => {
+  // The files still being read are a queue draining behind the work, not the
+  // work: the batch is making tables from the moment it can make one.
+  it("moves to Data Processing the moment any file has a shape", () => {
     const { container } = render(
-      <PipelineStrip counts={{ queued: 1, extracting: 1, filling: 0, done: 0, failed: 0 }} />,
+      <PipelineStrip
+        counts={{ queued: 2, extracting: 0, filling: 0, done: 0, failed: 0 }}
+        detecting={4}
+      />,
     )
-    const animated = container.querySelector(".motion-safe\\:animate-pulse")
-    expect(animated).toBeTruthy()
-    expect(container.querySelector(".animate-pulse:not(.motion-safe\\:animate-pulse)")).toBeNull()
+    expect(container.querySelector('[data-stage="process"]')).toHaveAttribute("data-active")
+    expect(container.querySelector('[data-stage="detect"]')).not.toHaveAttribute("data-active")
+  })
+
+  it("stands on Done only when nothing is left anywhere", () => {
+    const { container } = render(
+      <PipelineStrip counts={{ queued: 0, extracting: 0, filling: 0, done: 7, failed: 1 }} />,
+    )
+    expect(container.querySelector('[data-stage="done"]')).toHaveAttribute("data-active")
+    expect(container.querySelectorAll("[data-active]")).toHaveLength(1)
+  })
+
+  // Three numbers is what the strip is for. "nothing waiting" beside a nought
+  // is the nought again, in words and in small print.
+  it("puts no small print under the two stages that are only ever a count", () => {
+    const { container } = render(
+      <PipelineStrip counts={{ queued: 2, extracting: 0, filling: 0, done: 3, failed: 0 }} detecting={1} />,
+    )
+    for (const key of ["detect", "process"]) {
+      expect(container.querySelectorAll(`[data-stage="${key}"] p`)).toHaveLength(2)
+    }
+    expect(screen.queryByText(/nothing waiting|nothing running/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/reading the files|filling the tables/)).not.toBeInTheDocument()
+  })
+
+  it("names the failures under Done, in the error tone and nowhere else", () => {
+    const { container } = render(
+      <PipelineStrip counts={{ queued: 0, extracting: 0, filling: 0, done: 5, failed: 2 }} />,
+    )
+    const failed = screen.getByText("2 of them failed")
+    expect(failed).toBeVisible()
+    expect(failed.className).toContain("text-error-strong")
+    // The count stays what it was: seven tables are finished with, five of
+    // them usable. The line underneath is what says the difference.
+    expect(container.querySelector('[data-stage="done"] [data-count]')).toHaveTextContent("7")
+  })
+
+  it("says nothing under Done when nothing failed", () => {
+    const { container } = render(
+      <PipelineStrip counts={{ queued: 0, extracting: 0, filling: 0, done: 3, failed: 0 }} />,
+    )
+    expect(container.querySelectorAll('[data-stage="done"] p')).toHaveLength(2)
+    expect(screen.queryByText(/of them failed/)).not.toBeInTheDocument()
   })
 })
 
@@ -182,6 +245,35 @@ describe("TableList", () => {
       />,
     )
     expect(screen.getByText("page 2 of 3")).toBeVisible()
+  })
+
+  it("says Converting for every stage of the run, and never the worker's word for it", () => {
+    render(
+      <TableList
+        requestId="req_1"
+        entries={[
+          entry({ schemaId: "sch_1", stage: "QUEUED" }),
+          entry({ schemaId: "sch_2", stage: "EXTRACTING" }),
+          entry({ schemaId: "sch_3", stage: "FILLING" }),
+        ]}
+      />,
+    )
+    expect(screen.getAllByText("Converting")).toHaveLength(3)
+    expect(screen.queryByText("reading the pages")).not.toBeInTheDocument()
+    expect(screen.queryByText("filling the table")).not.toBeInTheDocument()
+  })
+
+  it("names the files with no table yet, under the ones that have one", () => {
+    render(
+      <TableList
+        requestId="req_1"
+        entries={[entry({ fileName: "a.pdf", stage: "DONE", rowCount: 4 })]}
+        awaiting={[{ fileId: "file_9", fileName: "z.pdf" }]}
+      />,
+    )
+    expect(screen.getByText("Detecting")).toBeVisible()
+    // Under, so a shape landing never pushes a row already being watched down.
+    expect(screen.getAllByText(/\.pdf$/).map((el) => el.textContent)).toEqual(["a.pdf", "z.pdf"])
   })
 })
 

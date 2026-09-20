@@ -14,7 +14,12 @@ import { usePoll } from "@/lib/polling"
 import { stageFiles, type StagedFile } from "@/lib/preflight"
 import { uploadAll, type UploadTask } from "@/lib/upload"
 import { partitionFailures, type SchemaState, type TableFailure } from "@/lib/schema"
-import { readRememberedFiles, rememberFiles, type RememberedFile } from "@/state/batchFiles"
+import {
+  readRememberedFiles,
+  rememberFiles,
+  rememberUnreadable,
+  type RememberedFile,
+} from "@/state/batchFiles"
 import { takeStagedFiles } from "@/state/staged"
 
 /* ------------------------------------------------------------------ */
@@ -454,7 +459,17 @@ export function useBatch(
       stopWhen: () => doneRef.current,
       maxPolls: SCHEMA_POLL_MAX,
       intervalFor: () => SCHEMA_POLL_MS,
-      onData: (response) => dispatch({ type: "schema-poll", response }),
+      onData: (response) => {
+        dispatch({ type: "schema-poll", response })
+        // Held across the gate. The result poll has nothing to say about a
+        // file with no shape — there is no table for it to report — so the
+        // results screen would otherwise count it among the files it is still
+        // waiting on and spin a row for it for the rest of the run.
+        rememberUnreadable(
+          requestId,
+          partitionFailures(response.files).files.map((entry) => entry.fileId),
+        )
+      },
     },
   )
 

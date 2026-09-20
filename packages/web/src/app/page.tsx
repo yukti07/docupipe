@@ -25,6 +25,7 @@ import { hasSeenIntro, markIntroSeen } from "@/lib/intro"
 import { stageFiles } from "@/lib/preflight"
 import { ensureSession, getPreviousUserId, newRequestId } from "@/lib/session"
 import { stageForRequest } from "@/state/staged"
+import { batchPatch, useWorkspaceRefresh } from "@/state/result"
 import { useWorkspace } from "@/state/workspace"
 
 export default function WorkspacePage() {
@@ -109,6 +110,13 @@ function Workspace() {
   const previousId = current?.previousId ?? null
   const waking = userId ? null : "Waking up your workspace — one moment."
 
+  // The cards are notes this browser wrote while it was watching each batch.
+  // Anything left mid-run kept the note it had when the screen was closed, so
+  // the list asks the server once about the batches it believes are running.
+  useWorkspaceRefresh(userId, batches, (requestId, data) =>
+    workspace.updateBatch(requestId, batchPatch(data)),
+  )
+
   function onFiles(files: File[]) {
     // The zone is inert without a session, so this cannot fire early. The guard
     // keeps that true if the zone's own gating ever changes.
@@ -191,7 +199,7 @@ function Workspace() {
 
         <section className="mt-10">
           <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-medium text-subtle-foreground">Batches</h2>
+            <h2 className="text-[13px] font-medium text-subtle-foreground">History</h2>
             {loaded && batches.length > 0 && (
               <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
                 {batches.length}
@@ -203,8 +211,8 @@ function Workspace() {
           ) : batches.length === 0 ? (
             <EmptyState
               className="mt-3 rounded-xl border border-dashed border-border-subtle bg-card/50"
-              title="No batches yet"
-              body="The ones you start will be listed here, newest first."
+              title="Nothing here yet"
+              body="Every batch you drop will be listed here, newest first."
             />
           ) : (
             <ul className="mt-3 flex flex-col gap-2">

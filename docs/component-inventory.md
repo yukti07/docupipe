@@ -253,7 +253,6 @@ is amber is the same sentence whether you meet it in the table or in the queue.
 | ID | Component | Purpose | Notes |
 |---|---|---|---|
 | D37 | **`FailureMessage`** | **Turns a failure class into a sentence and a next step** | The single place a failure becomes text |
-| D38 | **`ConnectionStatus`** | Live updates lost, reconnecting, offline | Global |
 | D39 | **`WakingUpState`** | The cold-start pause, named (P1) | Wraps `LoadingState` |
 | D50 | **`DropZone`** | Drag target and two real file inputs, one of them `webkitdirectory` | Both inputs are disabled with the zone, so the keyboard path cannot swallow a drop |
 

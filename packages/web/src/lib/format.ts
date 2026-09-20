@@ -23,6 +23,29 @@ export function formatEta(seconds: number | null): string | null {
   return `about ${Math.round(mins / 60)} hr left`
 }
 
+/**
+ * "September 20, 2026 · 10:42 AM" — when a batch was dropped.
+ *
+ * The full date rather than a relative one: a workspace is a list of things
+ * you did, and "2 days ago" stops being an answer the moment there are two of
+ * them from the same week. The time is on it because more than one batch a day
+ * is the normal case, and it is the only thing that tells them apart.
+ */
+export function formatStamp(iso: string): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ""
+  const date = at.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })
+  const time = at.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+  return `${date} · ${time}`
+}
+
 /** "14:32" — a resume time is a clock time, never a countdown. */
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
