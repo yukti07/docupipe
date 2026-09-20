@@ -1,75 +1,175 @@
-# decisions.md
+## 1. Next.js 16 + React 19 + TypeScript with App Router
 
-Every meaningful call made while building **Quarry**, one row each:
-**what I chose · what else I seriously considered · why · what I deliberately cut.**
+### Decision / Technology
+**Next.js 16 + React 19 + TypeScript with App Router**
 
-Rows are terse on purpose. Where a decision was later reversed, the row holds the *current* choice and
-the superseded one moves into **Alternatives** — so each row reads as one settled call rather than a
-thread. The story of how a reversal happened, and what it cost, is in
-[`docs/playbook.md`](docs/playbook.md). The design is [`docs/spec.md`](docs/spec.md); open questions
-are tracked in its §11.
+### Alternatives available
+React + Vite, Angular, separate frontend and backend applications
 
-> Name note: "Quarry" — you quarry structured stone out of raw rock. The repo directory is still
-> `react_DocumentConverter` from the first `mkdir`; renaming is cosmetic.
+### Why we chose it
+We can keep the **UI and lightweight backend APIs in the same application**. TypeScript allows the UI and API to share types, reducing mistakes. Next.js also fits well with Vercel and lets the team move quickly with one web codebase.
+
+### What we give up / trade-off
+We accept Next.js/Vercel conventions and constraints. For very large systems, separating the frontend and backend completely can offer more independent scaling and deployment control.
 
 ---
 
-## 1 · Scope
+## 2. Split processing into two workers: Schema Detector and Data Processor
 
-| # | Decision | Alternatives considered | Reasoning | Deliberately cut |
-|---|---|---|---|---|
-| **D1** | Scope on a **hard capability** — a resilient, self-aware extraction pipeline — not on an industry vertical | Pharma / legal / sales-CRM vertical; a single document type (invoices only); no boundary at all | A vertical makes domain knowledge the differentiator, costs a day sourcing documents I don't have, and a reviewer outside that industry can't judge it. "Structure anything" isn't a scope — it gives me no basis to say *no* on day 3 | Domain ontologies, code-system lookups, currency handling beyond ISO-4217. **Enrichment** — pulling in facts from outside the uploaded document — is out entirely: extraction, coercion and validation are the job. Accepted loss: no per-vertical accuracy wins |
-| **D2** | User is **one person with 20–500 lookalike documents and no ability to write a script**; identity is an anonymous signed-cookie session, created on first visit | Developers (API/SDK first); enterprises (SSO, multi-tenant, audit); one-document consumer use; Clerk or Supabase Auth "if there's time" | The *pile* is what creates the pain — one document you read yourself, and a developer with 200 writes a script. The pile is also the only case where rate limits, partial failure and per-document status are *felt* rather than theoretical. Something must own the budget ledger and the batches; nothing more is needed, and a sign-up wall in front of first run damages a graded criterion — no sign-up is a feature | Public API in v1, accounts, email, passwords, multi-tenancy, RBAC, team sharing |
-| **D3** | "Queryable" = **typed Postgres columns + full-text search** | Structured filtering only; pgvector embeddings for semantic search; natural-language → SQL as the primary interface | Embeddings solve discovery over prose; Quarry does precision over fields. FTS costs one column and covers the honest need — "the extraction missed it, let me grep." An NL box as the *only* query path is a trust disaster: it silently returns the wrong rows | pgvector, embeddings, RAG, chat-with-your-documents. NL→SQL is a day-5 stretch at best, and only ever layered on a query API that already works |
-| **D4** | **One product, several input adapters.** v1 covers **documents, images and audio**: PDF, images, `.docx`, `.xlsx`, CSV/JSON/XML, `.eml`, audio | Four separate flows for the four sketched use cases: CRM call audio, research PDFs with portal scraping, API payload analysis, support-email sentiment | Those four aren't four products — they're two axes: input modality × output shape. Audio→rows and PDF→rows are the same pipeline with a different adapter and a different schema, which is what makes the third one cost a day instead of a week | **Portal scraping** (acquisition, not structuring) and **API-wiring discovery from JSON** (static analysis over code; JSON/XML stay as input formats only). **Video is deferred, not rejected** — the adapter interface accommodates it (FFmpeg → audio → the existing audio path), but frame OCR and large-file handling buy nothing the audio path doesn't already cover |
+### Decision / Technology
+**Split processing into two workers: Schema Detector and Data Processor**
 
-## 2 · Architecture
+### Alternatives available
+One worker that detects the schema and immediately converts the entire document
 
-| # | Decision | Alternatives considered | Reasoning | Deliberately cut |
-|---|---|---|---|---|
-| **D5** | One canonical IR: **`Block[]` with a uniform `Locator`** that every adapter converges on before anything else runs | Raw text plus a page number, which is what most pipelines do; adopting an existing model (Tika XHTML, `unstructured`, Docling) | Makes **provenance universal**: evidence rendering becomes one implementation per locator type rather than one per modality. Page+bbox and audio speaker+timestamp are the same shape, so the PDF highlight and the audio seek are the same mechanism. No existing model carries "this claim came from these spans," and none fits audio timestamps beside page coordinates | Reading-order recovery, table stitching across pages, merged cells, de-skewing. Rejected as the hard problem to own — entire companies do only this. **Named fallback:** if table quality becomes the wall, a parse vendor (LlamaParse, Reducto, Azure Document Intelligence) drops in *behind* the adapter interface rather than being rebuilt. Adapters that can't supply a position emit `{type:'none'}` and the UI says so rather than lying |
-| **D6** | The pipeline is a **durable state machine** — `stage` is a column on the document row, and the worker advances exactly one stage per transaction | A synchronous request that runs the whole pipeline and returns; an in-memory queue (Celery, a task pool) with WebSocket progress; FastAPI/Next `BackgroundTasks` | Resume-after-crash isn't implementable in any of those: a crash during `infer` loses the extraction work *and* the tokens already spent, and background tasks die with the process. The same column gives per-document status, a place to record which stage failed and why, and observability I'd otherwise build separately. It is also what makes D25's interruptible drain safe | Accepted cost: every stage boundary serializes its output to the database — more writes, and a schema for intermediate state. Cheap at the document sizes targeted |
-| **D7** | The queue is **Postgres `FOR UPDATE SKIP LOCKED` + a lease column**; Postgres also holds the data, the job state and full-text search. All connections go through a **pooler** | Redis + Celery; SQS or Pub/Sub; managed queues; **MongoDB**; **MySQL 8** (which also has `SKIP LOCKED`) | Correct concurrent-claim semantics with **one datastore** — two stores means two consistency stories and a class of bug where the job row and the queue message disagree. Against Mongo: the product is *making differently-shaped things one shape*, so tabular and typed is the point; Mongo has no `SKIP LOCKED`, and provenance is joins. Against MySQL: `jsonb`+GIN, better FTS, and array columns matching `block_ids` directly | **`LISTEN/NOTIFY` is off the table** — serverless API functions must connect through a transaction-mode pooler, which doesn't carry session-level features. Waking the worker instantly is D25's job instead. Also accepted: Postgres-as-queue doesn't scale like SQS, and a direct (unpooled) connection from serverless exhausts Postgres in minutes |
-| **D8** | Uploads go **browser → presigned PUT → blob store**; the API only ever sees a file key | `multipart/form-data` to an API route that streams to storage — the normal thing | Serverless platforms cap request bodies hard (Vercel: 4.5 MB on every plan), and a 30 MB scan or a 40-minute audio file cannot go through an API route at all. Presigned upload removes the ceiling entirely — which is what keeps a serverless API viable at all (D16) — and keeps large payloads off the API | Resumable/chunked upload (tus, S3 multipart). Accepted cost: two round trips, a `pending` blob state so an abandoned upload doesn't orphan a row, and **bucket CORS that must allow `PUT` from both the deployed origin and localhost**, with a `Content-Type` matching exactly what was signed |
-| **D9** | Model access goes through a **router with a per-provider budget ledger and circuit breaker**; chain is **Gemini free → Groq → fixture provider**, and no code names a vendor | One provider's SDK directly (every early sketch said OpenAI or GPT); an aggregator (OpenRouter, LiteLLM) as the abstraction; **Bedrock with Claude Haiku primary on AWS credits** — the plan until the credits turned out to be an employer's | The binding constraint is **requests-per-day, not price** — on free tiers exhaustion is the *normal* operating state, so it has to be first-class, and no aggregator models a per-user budget ledger. Gemini takes **images and PDF pages natively in the same call as the schema**, so there is no separate "understand this scan" service — see D24 for how that splits against Tesseract | Bedrock's native PDF input, built-in citations and 50%-off batch API — attractive, unreachable on a personal account. Aggregator as the primary abstraction; automatic cost-optimal model selection. Budget numbers come from env vars set off my own dashboard, since Google no longer publishes per-model free-tier limits |
-| **D10** | An explicit **validate → coerce → repair** stage between the model and the database, capped at **exactly one** repair retry. Pydantic is the schema engine | Trusting the provider's structured-output guarantee; retrying until it parses; parsing loosely and storing everything as text | Structured output guarantees *syntactically* valid JSON. It does not turn "four thousand two hundred" into a number, disambiguate `31/01/2026` from `01/31/2026`, or refuse to confidently invent a field that isn't in the document. This stage is where extraction quality actually lives — and my first architecture sketch had no box for it at all | Unbounded retries. One retry is a deliberate spend limit: retrying forever against a rate-limited free tier is how you burn a day's quota on one malformed document |
-| **D11** | **Provenance + a rule-based `needs_review` flag.** Calibrated confidence is cut | Per-field calibrated probability, logprob-derived, validated against a labelled set; showing a raw model-reported confidence like "94%" | Roughly 80% of the value for 20% of the effort, *because* D5's locators already paid the expensive part. Calibration needs a labelled evaluation set I don't have — and an uncalibrated "94% confident" is worse than no number at all, because it invites trust it hasn't earned | Numeric confidence scores. Quarry shows evidence and a binary "I'd check this one." **Deferred, not cut:** schema inference from a pile; second-opinion cross-checking where *disagreement* is the signal |
-| **D12** | A **failure taxonomy** is a first-class artifact: every failure has a class, a sentence a human can act on, and a defined next action | Conventional error handling — try/except, log it, show "something went wrong"; retry everything | This is the core bet, and the difference between *graceful* degradation (the app doesn't crash) and *honest* degradation (the user is told which of their 200 documents failed, why, and what to do). The load-bearing line: **quota exhaustion is not an error** — it's a parked batch with a resume time, and on a free tier that's the normal state | Unclassified errors reaching the UI. Retrying everything — non-retryable classes (`format_*`, `provider_refused`) dead-letter immediately, because retrying a password-protected PDF four times just burns quota to reach the same answer |
-| **D13** | **Schemas are versioned**, one per file (D27); every row records the version that produced it, and stale rows are marked | Mutating schemas in place; re-extracting on any schema change | Changing a field's type or adding a field (D28) must not silently invalidate the rows already produced — and must not silently *re-run* them either, since re-extraction spends real quota the user wasn't asked about. Marking staleness is cheap, honest, and leaves the decision where it belongs. Versioning is also what makes D30's freeze-after-Convert survivable: re-running under a new version is the honest remedy for an edit the user wishes they'd made | Automatic migration or re-extraction on schema change. Re-running a batch stays P2 |
-| **D14** | Live progress over **SSE with replayable event ids** — every event carries the `run_events` row id, and `GET /batches/:id/events?since=<id>` replays the gap | WebSocket; plain client polling; SSE without ids | Progress is strictly one-directional server→client, which is SSE's shape. But a serverless API kills long responses at its duration cap (D16), so the stream *will* be cut mid-batch. Browsers resend the last id as `Last-Event-ID` automatically, so tagging events turns a hard failure into an invisible reconnect — and the same endpoint serves a page refresh | Bidirectional realtime, presence, collaborative editing. Blind polling — with the events table already present, replay-by-cursor is strictly better and costs one query parameter |
+### Why we chose it
+We intentionally separate **understanding the document** from **processing the full document**. The Schema Detector performs the relatively lightweight job of identifying the structure first. We then show that schema to the user and allow them to edit/approve it. Only after approval does the Data Processor run against the complete file. This keeps the workflow flexible and avoids doing full processing before we know what output the user actually wants.
 
-## 3 · Stack and infrastructure
+### What we give up / trade-off
+There are now two processing stages instead of one, which means more orchestration, states and Pub/Sub events. We also have to persist the schema between the two stages.
 
-| # | Decision | Alternatives considered | Reasoning | Deliberately cut |
-|---|---|---|---|---|
-| **D15** | **Next.js (UI + route handlers) in TypeScript, plus a separate Python worker.** Pydantic is the schema engine inside the worker | **TypeScript end to end** with one shared Zod package (the original call); **Python end to end** — FastAPI API + Python worker, which was the decision for a day; .NET API + Python worker | The worker has to be Python — the whole adapter list (PyMuPDF, Tesseract, python-docx, openpyxl, pandas) lives there. Given that, putting the API in Next means **the UI and the API share types natively**, which removes the OpenAPI→TypeScript generation step that Python-everywhere required. The visible surface stays in one language, which is where the build velocity is | The single shared-contract package, in both directions. Three things are now hand-mirrored across the language boundary: the **field-type system** (D13), the **failure taxonomy** (D12), and verification-rule output. All three are small; all three are core semantics that can drift silently. Accepted, with the mitigation that they're enumerated here so they get reviewed together |
-| **D16** | **Vercel for the Next app (UI + API); Google Cloud Run for the Python worker.** Every external dependency still sits behind an interface with a local implementation, so `docker compose up` works with no cloud account | Everything on one container platform (ECS or Cloud Run) — fewer moving parts, no serverless limits; AWS S3 + ECS; the earlier all-free-tier stack; AWS on employer credits (rejected — work account, personal project) | Vercel is the shortest path from a Next repo to a live URL with preview deploys, and **presigned uploads (D8) mean its 4.5 MB body cap never applies.** Cloud Run gives the worker a real container for Tesseract and a 60-minute request ceiling for D25's drain. Setup experience is graded, and the interface discipline is what made four vendor reversals cost hours rather than days | Accepted, and each has a named scenario: serverless **duration caps** cut the SSE stream (answered by D14); serverless **connection churn** requires a pooler (D7); **two consoles** for secrets and two deploy pipelines; **cross-region latency** unless Vercel's function region, Cloud Run's region and Postgres are co-located; and local dev no longer predicts production, which is why the deploy happens on day 1 |
-| **D17** | Extraction via **Python per-format libraries** — PyMuPDF, python-docx, openpyxl, pandas, stdlib `email` — with **MarkItDown as a named escape hatch** for stray formats | **Apache Tika as a JVM sidecar** (~1,000 formats), the choice until hosting constrained it; the TypeScript library set, superseded when the worker went Python; **Unstructured** as the foundation; MarkItDown as the foundation rather than the fallback | Small explicit libraries are predictable and debuggable, where a universal parser is a day spent fighting someone else's abstraction. PyMuPDF is meaningfully better than pdfjs at text-with-bbox, which D5 provenance depends on. Unstructured escapes the JVM but not the deployment complexity — it wants LibreOffice, Poppler, Tesseract and Pandoc | `.doc`, `.odt`, `.rtf`, `.msg`, `.pptx` and the rest of the long tail — unsupported until MarkItDown is pulled in for a real case, failing as `format_unsupported` with a real message until then. **Accepted seam:** PyMuPDF extracts bboxes in the worker and pdf.js renders them in the browser — two PDF engines whose coordinate systems must agree, mitigated by storing bboxes as fractions of page size rather than raw points |
-| **D18** | Frontend is a **Next.js app** — App Router, Tailwind, shadcn/ui, TanStack Table, pdf.js, Recharts — whose route handlers *are* the API | A **Vite SPA** with a separate API, which was the decision and is already scaffolded in `packages/web`; Next with `output:'export'` as a pure static SPA; Angular (assumed by early sketches, ruled out by the brief); AG Grid | Once the API is TypeScript, one framework serving both removes a whole contract. Route handlers are request-scoped, which is fine here precisely because the heavy work lives in the worker (D21). Radix under shadcn gives the review queue real keyboard nav; pdf.js is load-bearing — the evidence panel draws a highlight box at a bbox on page 3; Recharts covers D20's charts without a second rendering stack | SSR on the pipeline path — every page is session-gated and private, so rendering happens client-side regardless. Server Actions, which are await-the-result RPC where the model is enqueue-and-poll. AG Grid (heavy, licence questions). Cost: the existing Vite scaffold is re-done — half a day, since Tailwind and shadcn config carry over |
-| **D19** | Audio: **hosted Whisper (Groq) only**, with speaker turns **inferred from content** and labelled *"inferred from context"* | AWS Transcribe with acoustic diarization (gone with the credits); **local faster-whisper** as a no-key path; `pyannote` for real diarization — reconsidered once the worker went Python, still rejected | Hosted Whisper keeps the worker image small; local Whisper pulls 1–2 GB for a modality that isn't the core of the product, and pyannote additionally wants a HuggingFace token and a GPU. Whisper has no concept of a speaker, so infer turns from *what is said*: "so what would this cost us?" is obviously the customer. One extra model call on a transcript already in hand | Any claim that this is diarization — it's labelled inferred everywhere, and a weak inference carries `speaker: null`. **Accepted cost:** audio is the one modality with no offline path, so the fixture provider must cover audio for D16's zero-account property to hold |
-| **D20** | The output is **queryable tables**; charts exist as **pipeline observability** (P1) and as **Insights** — cross-field findings where *every finding cites the rows behind it, and an uncited finding is not rendered* (P1). Recharts is the library | The first sketch's three closing boxes — Charts, Tables, Insights; a blanket cut of all charts; keeping insights cut, which was the position through two revisions; unbounded insights with no citation rule; a natural-language question box instead | "Insights" cut cleanly as *a box that expands without limit* — correct about unbounded insights, and answered by the citation rule: a finding must point at rows, so the possible findings are the things visibly true about the table rather than the things a model can say. Enforced in the `InsightCard` component, not in a prompt — a prompt can be ignored by a model, a component cannot. Separately, the resilience bet is *invisible*: drawing stages filling and a provider greyed out on spent quota makes the deepest part of the build visible. Recharts is React-native and adds no second rendering stack | Unbounded insights, natural-language questions (D3's trust disaster), dashboards, scheduled reports, alerting. Conditions so it can't eat the build: plain CSS first with Motion only on days 4–5, pipeline chart is day-4 work. Ordinary "chart this column" drops to P2, **behind** Insights — the reverse of the previous ordering. CSV/Excel export stays the escape hatch |
-| **D21** | API and worker are **separate services in separate runtimes**, deployed from one repo, communicating only through Postgres | One process with the loop behind a `RUN_WORKER` flag — correct while the target was a free tier that bills background workers; an RPC or message broker between them | Transcription and extraction take minutes; request handling takes milliseconds. Beyond that, the split is now forced: a Next route handler on Vercel *cannot* host a claim loop at all. Sharing nothing but rows means no RPC contract to version, and D6 already guarantees an interrupted worker loses nothing | Accepted: two deploys, two secret stores, two languages. A message broker — Postgres is already the queue (D7), and adding one would put the job row and the message in a position to disagree |
-| **D22** | **Alembic owns the database schema.** SQLAlchemy Core in the worker; the TypeScript side **introspects** the live schema rather than declaring it | Drizzle owning the schema with Python following; both tools managing it (the classic way to lose a column); raw SQL and hand-written types on both sides; SQLAlchemy ORM in full | The worker does every hard write — blocks, field values, provenance, run events, stage transitions — and needs `SELECT … FOR UPDATE SKIP LOCKED` to be comfortable, which Core gives and the full ORM makes you route around. One owner avoids two tools each auto-generating a migration from its own idea of the truth. The Next side mostly reads, so generated-from-the-database types are enough | Schema changes authored in TypeScript. **The coordination tax is real:** every migration is write → run → regenerate TS types, and skipping the third step fails at runtime in the UI instead of at compile time. Mitigated by making regeneration one scripted command in the same task that runs the migration |
-| **D23** | Tests: **pytest + testcontainers (real Postgres)** in the worker, **Vitest + Playwright** in the Next app, a fixture model provider, and a **nasty-document corpus built on day 1, before features** | Mocking the database; unit tests only; building the corpus as features land; running against live providers in CI | `SKIP LOCKED` concurrency **cannot be mocked** — two workers racing for one row is a database behaviour, not application logic. And a system whose thesis is partial failure can't be validated by happy-path tests: several corpus fixtures have **a specific failure class as their correct expectation**, which is what makes D12 executable | Live-provider CI runs — the fixture provider replays recorded responses so the suite runs offline with no API key and no spend, and per D19 it must cover audio too. Coverage metrics: ~20 files chosen to hurt, not to count. Two test runners is the cost of D15 |
-| **D24** | Images and scanned pages use **both**: Tesseract in `extract` for **position**, the vision model in `infer` for **meaning**, joined by block-id citations | Tesseract alone, with the model never seeing the image; the vision model alone, which was D9's original "no OCR subsystem at all"; a cloud document-AI service (Textract, Azure DI, Google Document AI) | The two tools return different things. Tesseract gives **word-level bounding boxes** and no understanding; the vision model gives understanding and **no reliable coordinates**. `infer` receives both the image and the Tesseract blocks with their ids, and the prompt requires citations — so the model reads meaning off the image while the citation lands on a block that already has a bbox. Otherwise scans are the one document type where the evidence panel degrades, and scans are what users upload | Cloud document-AI services (cost, and another account in the setup path). Accepted cost: one local CPU pass per image before the model call, and Tesseract's own error modes on angled or low-contrast photos — partially covered by the model reading the same image |
-| **D25** | The worker is **triggered, not resident**: it exposes `POST /drain`, claims and advances documents until the queue is empty or a time budget expires, then returns. The API pings it after an upload; a scheduler pings it every few minutes as a safety net | A resident `while True` loop with Cloud Run `min-instances=1` and CPU always allocated (~$10–15/mo, and the loop works as originally designed); Cloud Run Jobs on a schedule; Pub/Sub push | Cloud Run throttles CPU to near zero outside a request, so a resident loop silently stops progressing between requests — the failure looks like a broken queue. Draining inside a request uses the platform as intended, scales to zero, and is **safe precisely because of D6**: a drain cut off mid-batch resumes at the exact stage it stopped. The scheduled ping is not optional — D12 parks batches on quota until a resume time, and nobody is uploading anything at 14:32 | The resident loop and the monthly cost of keeping one instance warm. Accepted: a cold start of 5–20 s on the first document after idle (the image carries Tesseract and its language data), shown in the UI as *waking up* rather than a stalled bar |
-| **D26** | **Tabular headers are reconciled by the model within a file**, onto that file's own inferred schema (D27), matching on **field name and type**. One call per file; the mapping is stored and shown | Reconciling *across* files against a user-authored schema, which is what this decision originally did; dropping D26 entirely once its premise disappeared; reading headers literally; fuzzy string matching; a hand-mapping UI | The original premise — one batch schema with a `description` per field to match against — is gone on both counts (D27, D28). Within a file, name and type carry enough to clean up headers, and cross-file convergence is now the user's explicit call at merge (D31) rather than something the model does invisibly. One call per file, not per row | The hand-mapping UI — D2's user cannot write a script. Reconciling *values* across vendors beyond what D10 coerces. **Named regression:** the `Mobile` -> `phone` case this decision was written for now fails at merge time instead of succeeding at infer time, because the two field names differ. That is a worse result on that case, accepted because the old behaviour bought it with the invisible automatic merge D27 exists to remove |
+---
 
-## 4 · Flow and schema
+## 3. Cloud SQL — PostgreSQL
 
-Added 2026-09-13. These five reverse the assumption that a batch has one shape, which every decision
-above was written under. The argument for each is in
-[`docs/playbook.md`](docs/playbook.md#day-0-later--2026-09-13--the-per-file-turn).
+### Decision / Technology
+**Cloud SQL — PostgreSQL**
 
-| # | Decision | Alternatives considered | Reasoning | Deliberately cut |
-|---|---|---|---|---|
-| **D27** | **The schema belongs to the file, not the batch.** Each file is read on upload and gets its own inferred schema; a file holding several tables produces one per table. A per-file **Preview / Edit** button replaces the batch-level Columns screen, disabled until that file's schema lands | Keeping one batch schema and adding a per-file preview *of that same schema* — a preview of nothing; inferring per file then auto-merging into one batch schema, which is what the old design did implicitly; asking the user up front whether their files share a shape | The old model was honest only when the pile was genuinely uniform, and handled non-uniformity by silently averaging — merging `Customer Name`, `client` and `Cust_Nm` across 50 files and reporting *"found in 47 of 50"*. That count was the system admitting it had made a judgement call for the user. Per-file inference removes the judgement call rather than reporting it better, and convergence becomes visible and opt-in in two places instead of invisible in one | The batch-level Columns screen. Automatic cross-file column merging. Confidence-as-a-count, which had nothing left to count. **Accepted loss:** "the table" becomes "the tables", and getting back to one now takes a deliberate act (D31) |
-| **D28** | **Exactly two schema edit operations: change a field's type, and add a field.** Rename, delete and the free-text `description` are all cut. Missing operations are **not drawn** — no greyed-out controls | The previous four-operation set (rename · delete · add · describe); keeping rename/delete but flagging renamed fields as diverging from source; keeping `description` alone as the cheapest and most load-bearing of the four | An inferred schema is a *claim about the document*, not a specification of desired output. Renaming `Cust_Nm` to `Customer Name` makes the table disagree with the file it came from, which is exactly the seam where provenance stops being checkable; deleting throws away something the document contains. Type correction and field addition are the two edits that don't lie about the source | Rename, delete, `description`, and greyed-out affordances for any of them. **Three named costs**, all accepted rather than solved: prompt steering (*"the total including tax, not the subtotal"*) is gone; D26 loses its matching signal; and "two fields mean the same thing" has no answer at the schema level. If corpus quality drops, `description` returns as an *optional non-structural annotation* — a note on a field is not an edit to its shape |
-| **D29** | **Apply-to-all matches on the *original* inferred schema** — same field names and types, order-independent. Affected files are listed by name before it commits, and the save carries the schema **and** its scope | Matching on each schema's *current* state, so edits compound; fuzzy or "similar-enough" matching; applying to everything by default with opt-out; a template concept files are assigned to | Without this, D27's honesty costs the user forty repetitions of one fix — the tax that makes a principled design lose to a sloppy one. Matching on the original is what makes the rule statable in one sentence: *"this reaches the files that started out looking like this one."* Matching on current state would make the affected set depend on the order edits were made in, which is unexplainable. Sending scope with the save means the server never reconstructs what the user meant | Fuzzy and subset matching. Compounding edits. Opt-out-by-default propagation |
-| **D30** | **Results stream per file** — a file's table is viewable and downloadable the moment it finishes. **Convert is the only gate**, enabled when every file has uploaded *and* settled its schema (ready **or** failed). Nothing is editable after it | Holding "results appear at a terminal state"; enabling Convert on upload completion alone, as literally asked; allowing schema edits during processing for files not yet started | The old rule contradicted `spec.md`'s processing section (*"document 4 is queryable while document 40 is still transcribing"*) from the start, and survived only because nothing forced a choice — per-file schemas force it. The original argument, that a half-filled grid is agitating, holds for *one table filling in* and doesn't transfer to *a list of files with buttons appearing on them*. Waiting for schemas to **settle** rather than **succeed** keeps one unreadable file from holding fifty good ones hostage | The terminal-state results rule. Editing during processing. **Accepted:** with the review queue at P2, P0 ships with **no way to edit a value at all** — the user can see what to doubt and check it against its source, and must fix it in Excel. Largest single scope cut in this turn |
-| **D31** | **Merge is explicit, post-convert, and exact.** Available once every file has finished; tables sharing a shape are grouped for one-click selection; the check is same-names-same-types, order-independent; a failure names the table, the field and the disagreement, **on the offending card**. Merged tables carry a source-file column and keep their evidence | Merging automatically wherever schemas match — D27's rejected behaviour in a different hat; widening on conflict (number + text becomes text); subset merging with missing fields as `not found`; merging before the batch finishes | Strictness is the point. Widening is the dangerous option because it *always succeeds*: it silently turns a numeric column into text, and every total calculated downstream is then wrong in a way nobody can see — the exact failure this product exists to prevent, reintroduced as a convenience. *"`Invoice No` is text in 12 tables and number in 3"* is a worse moment and a better outcome | Automatic merging. Type widening. Subset merging. Merging mid-batch. Reconciling differently-named fields that mean the same thing — that case now fails here, by name, rather than being guessed at (see D26) |
-| **D32** | **The schema poll is keyed on (user, request) and reports a per-file detection status.** Every poll returns the request's files with `ready` or `failed` on each, and a failure object when it failed | Reporting only the shapes that succeeded and letting the client infer the rest from silence; a separate endpoint for failures; a single batch-level status | *Settled means ready or failed* (D30) is unimplementable without it: a file that can never produce a shape is otherwise indistinguishable from one still working, the client waits forever, and one unreadable scan holds fifty good invoices hostage. This is the single field the Convert gate rests on | Inferring failure from absence. Accepted: the response carries every file every time it changes, rather than a minimal diff |
-| **D33** | **The page allowance is per person, not per batch.** The meter sits in the header on every screen and shows the last figure the server sent; before the first batch it shows nothing rather than a zero | Per batch, which is what a meter beside one batch would imply; showing a placeholder zero before any figure exists; hiding the meter until a batch is running | A per-batch meter is wrong on every screen except the one batch being watched, and the allowance is the one number that explains a pause *before* it happens. A zero before the first figure would be a claim the server never made | A live allowance endpoint. Accepted: the figure only arrives on a conversion poll, so between batches it is true-as-of rather than current |
-| **D34** | **"Raise the cap" opens a dialog saying the cap cannot be raised yet**, and names what happens instead — the reset time, and that finished tables stay downloadable. It appears only beside a pause | Removing the control until the settings screen exists; linking to a settings screen that is not built; leaving it inert | The cap is a setting and the settings screen is P1, so there is nothing to link to. Of the three, only this one answers the question the user is actually asking at that moment — *when do I get my tables?* | A settings screen at P0. **Named cost:** this is the one place the product knowingly draws a control that cannot do what its label says, against its own rule. It is scoped to the pause, where the alternative is silence |
-| **D35** | **A reload is answered by the server, not by the browser's memory.** Confirmed uploads are remembered as `fileId → name, path, signed url` per request, so a refresh mid-upload still shows them; and a result poll on load decides whether a batch is converting, promoting the screen even when this browser has no note | Trusting the browser's own note alone; persisting File handles, which browsers do not allow; resumable uploads; a dedicated "what phase is this batch" endpoint | The bytes cannot survive a navigation but the *fact* of the upload can, and schema detection is already running server-side by then. For the phase, the note is lost on a new machine — which is exactly what the workspace link (a bearer capability, D3) invites. The probe only ever promotes: one empty or failed response must not throw someone out of a batch they know has converted | Resumable uploads. A phase endpoint. **Accepted:** a file that was still uploading when the page reloaded is gone and must be dropped again — it is not in the bucket, so there is nothing to resume |
-| **D36** | **A workbook is one file with one table per worksheet**, carried on `file_schemas.table_ord` — the ordinal IS the sheet index. The workbook stays one object in GCS and one `files` row; every sheet gets its own shape, its own review, its own run and its own failure. `XlsxReader` reads the sheet its ordinal names and **refuses** when it is not told which. Each table's rows get a physical table of their own, `structured_records_<sha256(file_id)[:24]>_t<ord>` | Child `files` rows under a `parent_file_id`, with `worksheet_name`/`worksheet_index` columns and the workbook as their physical parent — the shape the request arrived in; going further the other way and collapsing `file_schemas` back to one per file so the child rows become the only axis; leaving the first-meaningful-sheet behaviour and documenting it | The per-worksheet axis already existed and was already load-bearing: D27 put several tables under one file, `file_schemas` is unique on `(file_id, table_ord)`, `file_schema_results` gives each table its own stage and failure, and the §0.4 poll was already specified as *one entry per (fileId, schemaId)*. Child file rows would have been a **second** unit of work beside that one — two answers to "what is being converted" — and would have had to fight `files_object_key_uq`, the lease and reaper, the file counts and the merge feature. `(file_id, table_ord)` is also exactly the idempotency key the decomposition needed, so redelivery lands on the same rows with no new constraint. Only two things were genuinely missing, and both were the worker's: detection stopped at `usable[0]`, and the table screen found a run by `file_id` when runs are per shape. The rows were split per table rather than left in one table keyed by run, because two worksheets are two answers to "what is this table" and sharing one physical table made every read depend on remembering to filter by run — the read path had already forgotten once | `parent_file_id`, worksheet columns on `files`, and any physical duplication of the workbook. **Two named costs**, both accepted: worksheets of one file are converted **in sequence under one lease** rather than in parallel, because the lease lives on the file — a per-table lease is a second reaper path for a gain nobody has asked for; and an empty sheet is a `file_schemas` row with **no fields**, which the schema screen shows as a failed table rather than an editable one. Hidden sheets are kept and marked, not dropped — excluding them stays a decision someone has to make out loud |
+### Alternatives available
+Firestore, DynamoDB, AWS RDS, Supabase, Neon, self-managed PostgreSQL
+
+### Why we chose it
+Our data has clear relationships: **request → files → schemas → processing runs → results**. PostgreSQL handles these relationships, transactions and JSON data well. Cloud SQL gives us managed PostgreSQL without running the database ourselves.
+
+### What we give up / trade-off
+It does not scale to zero like Cloud Run, so there is some fixed cost. We also become more dependent on GCP.
+
+---
+
+## 4. Cloud Run
+
+### Decision / Technology
+**Cloud Run**
+
+### Alternatives available
+AWS ECS + Fargate, Kubernetes/GKE, VMs, Lambda/Cloud Functions
+
+### Why we chose it
+The **Schema Detector** and **Data Processor** are stateless, containerized workloads with bursty demand. Cloud Run is a good fit because it runs arbitrary Docker containers, autos-scales based on traffic, and can scale to zero when idle. This minimizes operational overhead for the POC.
+
+### What we give up / trade-off
+Less infrastructure control than Kubernetes or VMs. Cold starts are possible. AWS ECS/Fargate may be a better fit for companies already heavily invested in AWS.
+
+---
+
+## 5. Google Pub/Sub
+
+### Decision / Technology
+**Google Pub/Sub**
+
+### Alternatives available
+AWS SQS/SNS, Kafka, RabbitMQ, database-backed queues
+
+### Why we chose it
+It lets the web application and processing workers work **independently**. Uploading a file does not make the user wait for schema detection or conversion to finish. Pub/Sub simply sends a message to start the Cloud Run worker. It integrates well with the GCS bucket listener and the Cloud Run.
+
+### What we give up / trade-off
+Messages can be delivered more than once, so workers must be **idempotent** and safely handle duplicate messages. It also adds another piece of infrastructure.
+
+---
+
+## 6. Google Cloud Storage — GCS
+
+### Decision / Technology
+**Google Cloud Storage — GCS**
+
+### Alternatives available
+Amazon S3, Azure Blob Storage, storing files in PostgreSQL, local disk
+
+### Why we chose it
+PDFs, Excel files and images can be large. THe browser can upload directly to GCS using a signed URL, so large files do not have to pass through our Next.js server. Why to send the file to server when it is actually needed only by the workers.
+
+### What we give up / trade-off
+The database and files now live in two different systems, so we need to keep their references in sync. It also creates some GCP dependency and possible data-transfer latencies.
+
+---
+
+## 7. The file is the main processing unit, not the overall request
+
+### Decision / Technology
+**The file is the main processing unit, not the overall request**
+
+### Alternatives available
+Treat the whole upload/request as one large processing job
+
+### Why we chose it
+One request may contain a PDF, CSV, Excel and image, all with different structures. Processing each **file independently** lets every file have its own schema, status, errors and result. The request simply groups them together.
+
+### What we give up / trade-off
+Request-level status becomes more complex. Instead of simply saying “success” or “failure”, we may need to show “8 files completed, 1 failed, 1 still processing.”
+
+---
+
+## 8. Each Excel worksheet becomes an independent logical file, while only one XLSX is stored
+
+### Decision / Technology
+**Each Excel worksheet becomes an independent logical file, while only one XLSX is stored**
+
+### Alternatives available
+Treat the whole workbook as one dataset; physically split and store every sheet as a separate file
+
+### Why we chose it
+Different Excel sheets often represent completely different data—for example **Customers, Orders and Payments**. We keep the original workbook once in GCS, but internally treat every worksheet like a separate file. This means the rest of our pipeline can process each sheet normally.
+
+### What we give up / trade-off
+We need extra logic to map a logical worksheet back to the original Excel file. A workbook with many sheets also creates more items for the user to review.
+
+---
+
+## 9. Keep results separate by default; merging tables is an explicit action
+
+### Decision / Technology
+**Keep results separate by default; merging tables is an explicit action**
+
+### Alternatives available
+Automatically combine similar files/tables into one dataset
+
+### Why we chose it
+We do not want the system to silently combine data just because two tables look similar. First we preserve each result independently. The user can then explicitly merge **compatible tables** when they know the data represents the same thing.
+
+### What we give up / trade-off
+The user sometimes has to perform an extra merge step. Two tables that are conceptually the same but use slightly different column names may require mapping before they can be merged.
+
+---
+
+## 10. Support partial success instead of failing the entire request
+
+### Decision / Technology
+**Support partial success instead of failing the entire request**
+
+### Alternatives available
+All-or-nothing processing: if one file fails, the whole request fails
+
+### Why we chose it
+Real uploads are messy. One corrupted PDF or one bad Excel sheet should not destroy the successful work from the other files. We show status **per file / worksheet**, allow successful results to remain available, and let failed items be retried independently.
+
+### What we give up / trade-off
+The UI and backend state are more complicated because a request can be partly successful and partly failed. We need to communicate these mixed states clearly to the user.
+
+---
+
+## 11. Use Gemini instead of building our own OCR/document-understanding engine
+
+### Decision / Technology
+**Use Gemini instead of building our own OCR/document-understanding engine**
+
+### Alternatives available
+Build OCR ourselves using Tesseract/OpenCV, custom document-layout models, or train our own extraction models
+
+### Why we chose it
+**Time-to-market was the main reason.** Building reliable OCR plus table detection, layout understanding and semantic extraction is a large engineering problem on its own. Gemini lets us support PDFs, images and semi-structured documents much faster, allowing us to focus on the actual product: schema detection, user review and structured conversion.
+
+### What we give up / trade-off
+We depend on an external model provider, so there are API costs, rate limits and some variability in model output. We also have less control than we would with a fully custom document-understanding stack.
+
+---
