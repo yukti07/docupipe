@@ -1,19 +1,21 @@
 "use client"
 
-import { FieldTypeSelect } from "@/components/quarry/FieldTypeSelect"
-import type { FieldType, SchemaField } from "@/lib/api/types"
+import { CurrencySelect, FieldTypeSelect } from "@/components/quarry/FieldTypeSelect"
+import type { CurrencyCode, FieldType, SchemaField } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
 /**
- * The type control is the only interactive thing on the row. The name renders
- * mono with no input chrome and no hover affordance, because renaming does not
- * exist — and a greyed-out rename control would read as a bug on every row of
- * every schema.
+ * The type controls are the only interactive things on the row. The name
+ * renders mono with no input chrome and no hover affordance, because renaming
+ * does not exist — and a greyed-out rename control would read as a bug on
+ * every row of every schema.
  */
 export function SchemaFieldRow({
   field,
   originalType,
   onChangeType,
+  onChangeCurrency,
+  currencyColumn,
   disabled,
   className,
 }: {
@@ -21,6 +23,13 @@ export function SchemaFieldRow({
   /** What the document said, so a changed type can say it changed. */
   originalType?: FieldType
   onChangeType: (type: FieldType) => void
+  onChangeCurrency?: (currency: CurrencyCode) => void
+  /**
+   * Some field in this schema is a currency, so every row holds the space for
+   * the second control whether or not it has one. Without it the type selects
+   * step in and out by a hundred pixels down a thirty-row schema.
+   */
+  currencyColumn?: boolean
   disabled?: boolean
   className?: string
 }) {
@@ -31,7 +40,8 @@ export function SchemaFieldRow({
     <div
       data-state={added ? "added-by-you" : changed ? "type-changed" : "detected"}
       className={cn(
-        "grid min-h-[44px] grid-cols-[1fr_112px] items-center gap-3 border-b border-border-faint px-3 py-2 last:border-b-0",
+        "grid min-h-[44px] items-center gap-3 border-b border-border-faint px-3 py-2 last:border-b-0",
+        currencyColumn ? "grid-cols-[1fr_112px_92px]" : "grid-cols-[1fr_112px]",
         className,
       )}
     >
@@ -51,6 +61,19 @@ export function SchemaFieldRow({
         label={field.key}
         disabled={disabled}
       />
+      {currencyColumn &&
+        (field.type === "currency" && onChangeCurrency ? (
+          <CurrencySelect
+            value={field.currency}
+            onChange={onChangeCurrency}
+            label={field.key}
+            disabled={disabled}
+          />
+        ) : (
+          /* The reserved cell, holding the column open for the rows that do
+             have a currency. */
+          <span aria-hidden />
+        ))}
     </div>
   )
 }

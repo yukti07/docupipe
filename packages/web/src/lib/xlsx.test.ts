@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CellValue, SchemaField, TableRow } from "@/lib/api/types"
+import { toCsv } from "./csv"
 import { cellValue, sheetName, sheetRows } from "./xlsx"
 
 const field = (key: string, type: SchemaField["type"] = "text"): SchemaField => ({
@@ -88,5 +89,28 @@ describe("sheetRows", () => {
     expect(header).toEqual(["source_file", "invoice_number", "total"])
     expect(first[0]).toBe("invoice-1043.pdf · table 1")
     expect(first[2]).toBe(10)
+  })
+})
+
+describe("a currency column in a workbook", () => {
+  it("carries its code in the header, since the cells are bare numbers", () => {
+    // The amounts are written as numbers so the sheet can sum them. That is
+    // the whole reason the code has to live in the column name.
+    const rows: TableRow[] = [
+      { recordId: "r1", values: { total: value("1,299.50") } },
+    ]
+    const [header, [amount]] = sheetRows({
+      name: "x.pdf",
+      fields: [{ ...field("total", "currency"), currency: "GBP" as const }],
+      rows,
+    })
+    expect(header).toEqual(["total (GBP)"])
+    expect(amount).toBe(1299.5)
+  })
+
+  it("says the same thing the CSV says, so one batch downloaded twice agrees", () => {
+    const fields = [{ ...field("total", "currency"), currency: "USD" as const }]
+    const [header] = sheetRows({ name: "x.pdf", fields, rows: [] })
+    expect(header).toEqual([...toCsv({ fields, rows: [] }).text.split("\r\n")[0].split(",")])
   })
 })

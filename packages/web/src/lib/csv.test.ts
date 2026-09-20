@@ -77,6 +77,24 @@ describe("toCsv", () => {
     expect(text.split("\r\n")[0]).toBe("source_file,invoice_number,total")
     expect(text.split("\r\n")[1]).toBe("invoice-1044.pdf,INV-1,10.00")
   })
+
+  it("names a currency column with the currency it is in", () => {
+    // The cells are bare numbers by the time they are here. The header is the
+    // only place left that can say what they are amounts of.
+    const priced = {
+      ...table,
+      fields: [field("invoice_number"), { ...field("total"), type: "currency" as const, currency: "EUR" as const }],
+    }
+    expect(toCsv(priced).text.split("\r\n")[0]).toBe("invoice_number,total (EUR)")
+  })
+
+  it("leaves a currency column nobody has marked named as it always was", () => {
+    const priced = {
+      ...table,
+      fields: [field("invoice_number"), { ...field("total"), type: "currency" as const }],
+    }
+    expect(toCsv(priced).text.split("\r\n")[0]).toBe("invoice_number,total")
+  })
 })
 
 describe("csvFileName", () => {

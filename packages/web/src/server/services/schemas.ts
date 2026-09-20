@@ -7,7 +7,7 @@ import type {
   TableSchema,
   UpdateSchemaResponse,
 } from "@/lib/api/types"
-import { FIELD_TYPES } from "@/lib/api/types"
+import { CURRENCY_CODES, FIELD_TYPES } from "@/lib/api/types"
 import { transaction } from "../db/client"
 import * as repo from "../db/repos"
 import { fail } from "../handler"
@@ -15,6 +15,12 @@ import { fail } from "../handler"
 /**
  * §0.4 — the schema poll, and §0.5 — saving an edit.
  */
+
+/**
+ * The stages a file passes through before anything is known about its shape.
+ * They are the wait the Convert gate counts; every other stage has an answer.
+ */
+const READING = new Set<repo.FileStage>(["UPLOADING", "UPLOADED", "INSPECTING"])
 
 /**
  * `received` is the set of fileIds the client already holds, and only files
@@ -50,10 +56,13 @@ export async function pollSchemas(
   let pending = 0
 
   for (const file of files) {
-    // "Settled" means SCHEMA_READY **or** FAILED. Anything else is still
-    // working, and it is what the Convert gate waits on.
-    const settled = file.stage === "SCHEMA_READY" || file.stage === "FAILED"
-    if (!settled) {
+    // "Settled" means its shape has been read, one way or the other — which
+    // every stage past inspection has, including the two the file moves
+    // through after Convert. Listing the settled stages by name instead used
+    // to drop a converted file out of this response entirely, and Review
+    // schemas — which stays reachable read-only after the gate — came back to
+    // "No schema came back" for a batch whose tables were on screen next door.
+    if (READING.has(file.stage)) {
       pending += 1
       continue
     }
@@ -171,6 +180,7 @@ function toTableSchema(row: repo.SchemaRow, matchingFileCount: number): TableSch
       label: f.label,
       type: f.type,
       origin: f.origin,
+      ...(f.currency ? { currency: f.currency } : {}),
     })),
   }
 }
@@ -253,7 +263,7 @@ export async function updateSchemas(
  */
 function validateEdit(
   original: repo.SchemaFieldJson[],
-  incoming: { key: string; label: string; type: string; origin?: string }[],
+  incoming: { key: string; label: string; type: string; origin?: string; currency?: string }[],
 ): repo.SchemaFieldJson[] {
   if (!Array.isArray(incoming) || incoming.length === 0) {
     throw fail("internal", "A table needs at least one field.")
@@ -282,6 +292,7 @@ function validateEdit(
       // A field the document had keeps `detected` however it was edited; only
       // a genuinely new one is `added`, which is what the UI marks.
       origin: from ? "detected" : "added",
+      ...currencyOf(field, type, key),
     })
   }
 
@@ -296,4 +307,30 @@ function validateEdit(
   }
 
   return result
+}
+
+/**
+ * The currency to persist on one field, if any.
+ *
+ * Stripped from anything that is not a `currency` field, because a code on a
+ * text column is a claim about amounts that column does not hold — and it
+ * would then survive a retype forever, since nothing else ever clears it.
+ *
+ * An unknown code is refused rather than dropped. Dropping it would save a
+ * schema that quietly disagrees with the one the user submitted, and the
+ * worker strips exactly the codes in this list when it reads an amount, so a
+ * code outside it is not a cosmetic difference.
+ */
+function currencyOf(
+  field: { currency?: string } | undefined,
+  type: string,
+  key: string,
+): { currency?: repo.SchemaFieldJson["currency"] } {
+  const code = field?.currency
+  if (code === undefined || code === null || code === "") return {}
+  if (type !== "currency") return {}
+  if (!(CURRENCY_CODES as readonly string[]).includes(String(code))) {
+    throw fail("internal", `We don't know the currency “${code}” on “${key}”.`)
+  }
+  return { currency: code as repo.SchemaFieldJson["currency"] }
 }

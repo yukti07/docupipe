@@ -214,7 +214,7 @@ describe("ConvertBar", () => {
     )
   })
 
-  it("keeps what has landed apart from what is still going up", () => {
+  it("counts what has landed, and says nothing about what is still moving", () => {
     render(
       <ConvertBar
         convertAvailable={false}
@@ -232,7 +232,35 @@ describe("ConvertBar", () => {
         onConvert={vi.fn()}
       />,
     )
-    expect(screen.getByText("1 of 3 uploaded · 1 going up")).toBeVisible()
+    // The count of files whose bytes are in the air was beside this one. It
+    // was a second number for the same thing the bar above already draws.
+    expect(screen.getByText("1 of 3 uploaded")).toBeVisible()
+    expect(screen.queryByText(/going up/)).not.toBeInTheDocument()
+  })
+
+  it("stops the spinner when the bytes stop, not when the shapes come back", () => {
+    const landed = {
+      uploaded: 3,
+      total: 3,
+      schemas: 0,
+      withoutShape: 0,
+      uploading: false,
+      inFlight: 0,
+      fraction: 1,
+    }
+    const { container } = render(
+      <ConvertBar
+        convertAvailable
+        convertBlockedReason={null}
+        progress={landed}
+        reviewHref="/request/req_test/schemas"
+        onConvert={vi.fn()}
+      />,
+    )
+    // Not one shape is back, and nothing here waits for one: Review Schemas
+    // opens on whatever has landed and Convert queues the rest.
+    expect(container.querySelector("footer .animate-spin")).toBeNull()
+    expect(screen.getByRole("link", { name: "Review Schemas" })).toBeVisible()
   })
 
   it("gates Convert on the server's answer and repeats its reason", () => {

@@ -1,4 +1,5 @@
 import type { SchemaField, TableData, TableRow } from "@/lib/api/types"
+import { fieldHeader } from "@/lib/schema"
 
 /**
  * One workbook, one worksheet per table.
@@ -74,7 +75,10 @@ export function cellValue(display: string, type: SchemaField["type"]): string | 
 /** The rows of one sheet, header included, with not-found left empty. */
 export function sheetRows(sheet: SheetSource): (string | number | null)[][] {
   const header: string[] = sheet.sourceColumn ? [sheet.sourceColumn.header] : []
-  header.push(...sheet.fields.map((field) => field.key))
+  // The same header the CSV and the screen use: the amounts are written as
+  // bare numbers so the sheet can sum them, which leaves the column name as
+  // the only place the currency can be said.
+  header.push(...sheet.fields.map((field) => fieldHeader(field)))
 
   const body = sheet.rows.map((row) => {
     const cells: (string | number | null)[] = sheet.sourceColumn

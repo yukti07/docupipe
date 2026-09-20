@@ -162,11 +162,18 @@ function Workspace() {
             document heading is here for a screen reader and nowhere else. */}
         <h1 className="sr-only">Your workspace</h1>
 
-        <DropZone onFiles={onFiles} disabledReason={waking} />
-
-        {/* What the strip watches for. It sits below the card rather than on
-            it, so the strip arrives exactly as the card's last row leaves. */}
+        {/* What the strip watches for.
+            It marks the TOP of the card, not the bottom. Under the card the
+            strip arrived exactly as the card's last row left, which was the
+            tidier line and was also unreachable: the card is 460px tall, so
+            it asked for 542px of scroll, and a tall window with a handful of
+            batches has nowhere near that much page to scroll. The strip then
+            never appeared at all for most of the workspaces anybody has.
+            Here it asks for the height of the header, which any scroll at all
+            gives — and the card is on its way out by the time it arrives. */}
         <div ref={sentinel} aria-hidden className="h-px" />
+
+        <DropZone onFiles={onFiles} disabledReason={waking} />
 
         {/* Adopting a shared link swaps this browser's identity, and the
             batches that came with the old one went with it. */}

@@ -108,4 +108,20 @@ describe("S01 workspace", () => {
     expect(within(zone).getByText("Waking up your workspace — one moment.")).toBeVisible()
     released.resolve()
   })
+
+  // jsdom has no layout and no IntersectionObserver, so what the strip does
+  // on screen cannot be asserted here. What can be is the thing that was
+  // wrong: the marker it watches has to be above the card. Below it, the
+  // strip asked for the card's full height in scroll — more page than a
+  // workspace with a handful of batches has — and never appeared at all.
+  it("watches for the top of the drop card, not the bottom", async () => {
+    registers()
+    localStorage.setItem("quarry.introSeen", "1")
+    const { container } = renderPage()
+    await within(card()).findByText("Drop your documents here")
+
+    const marker = container.querySelector("main > div.h-px")
+    expect(marker).not.toBeNull()
+    expect(marker!.compareDocumentPosition(card()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })

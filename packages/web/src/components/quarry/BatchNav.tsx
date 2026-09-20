@@ -68,6 +68,7 @@ export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProp
           // until the gate is crossed.
           const href = !here && path ? path(requestId, phase) : null
           const label = labelOf(id, phase)
+          const ticked = isTicked(id, state, phase)
 
           return (
             <li
@@ -90,12 +91,12 @@ export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProp
               )}
               {href ? (
                 <Link href={href} className={cn(CHIP[state], "hover:text-foreground", LINK_FOCUS)}>
-                  <Marker id={id} state={state} />
+                  <Marker id={id} state={state} ticked={ticked} />
                   <span className={labelClass}>{label}</span>
                 </Link>
               ) : (
                 <span className={CHIP[state]}>
-                  <Marker id={id} state={state} />
+                  <Marker id={id} state={state} ticked={ticked} />
                   <span className={labelClass}>{label}</span>
                 </span>
               )}
@@ -172,19 +173,23 @@ function stateOf(
 }
 
 /**
- * Steps tick when they are behind you. Results never does: whether the batch
- * has finished is the status sentence's job, and a tick here would be a second,
- * quieter copy of it.
+ * Steps tick when they are behind you and there is something behind you to
+ * tick. Results is the one step that can read "done" before it is: it is the
+ * step you are heading for from the moment Convert is pressed, and a tick
+ * while the batch is still converting would claim results that have not
+ * arrived. So it ticks on `converted` alone — and then it does tick, because
+ * standing on Schemas with a finished batch next door, an empty circle on
+ * Results says the opposite of what is true.
  */
-function Marker({ id, state }: { id: StepId; state: StepState }) {
+function Marker({ id, state, ticked }: { id: StepId; state: StepState; ticked: boolean }) {
   return (
     <span
       aria-hidden
       className={cn(
         "grid size-[18px] shrink-0 place-items-center rounded-full",
         state === "current" && "bg-primary",
-        state === "done" && id !== "results" && "bg-primary-tint-strong text-primary",
-        state === "done" && id === "results" && "border border-border-subtle",
+        ticked && "bg-primary-tint-strong text-primary",
+        state === "done" && !ticked && "border border-border-subtle",
         state === "upcoming" && "border border-border-subtle",
         state === "locked" && "bg-muted text-muted-foreground",
       )}
@@ -193,12 +198,16 @@ function Marker({ id, state }: { id: StepId; state: StepState }) {
         <Lock className="size-2.5" strokeWidth={2.2} />
       ) : state === "current" ? (
         <span className="size-1.5 rounded-full bg-primary-foreground" />
-      ) : state === "done" && id !== "results" ? (
+      ) : ticked ? (
         <Check className="size-3" strokeWidth={2.4} />
       ) : null}
     </span>
   )
 }
+
+/** A step is ticked once it is behind you — Results, only once it has landed. */
+const isTicked = (id: StepId, state: StepState, phase: BatchPhase) =>
+  state === "done" && (id !== "results" || phase === "converted")
 
 function Connector({ lit, marching }: { lit: boolean; marching: boolean }) {
   return (

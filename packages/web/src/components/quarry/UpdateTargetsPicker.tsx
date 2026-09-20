@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
  */
 export function UpdateTargetsPicker({
   sourceName,
+  sourceLabel,
   version,
   targets,
   updating,
@@ -34,6 +35,13 @@ export function UpdateTargetsPicker({
 }: {
   /** The table these fields come from, named at the top so the panel keeps its subject. */
   sourceName: string
+  /**
+   * The same table, named as the panel's dropdown names it. It heads the list
+   * as a row that is ticked and cannot be unticked: the write always reaches
+   * it, and a list that showed only the others would be a list of everywhere
+   * this schema is going except the place it is going first.
+   */
+  sourceLabel?: string
   version: number
   targets: UpdateTarget[]
   updating?: boolean
@@ -119,7 +127,26 @@ export function UpdateTargetsPicker({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {visible.length === 0 && (
+        {sourceLabel && (
+          <section>
+            <h3 className="px-4 pt-3.5 pb-1.5 text-[10.5px] font-semibold tracking-[0.08em] uppercase text-muted-foreground">
+              This table
+            </h3>
+            {/* Not filtered and not toggleable — it is not a choice, it is
+                what the button already does. */}
+            <div className="flex items-center gap-3 px-4 py-2.5">
+              <Checkbox checked disabled aria-label={`${sourceLabel} — always updated`} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-[12.5px]">{sourceLabel}</span>
+                <span className="block truncate text-[11.5px] text-muted-foreground">
+                  always updated
+                </span>
+              </span>
+            </div>
+          </section>
+        )}
+
+        {visible.length === 0 && targets.length > 0 && (
           <p className="px-4 py-6 text-center text-[12.5px] text-muted-foreground">
             No table here is called that.
           </p>
@@ -149,8 +176,9 @@ export function UpdateTargetsPicker({
         {failure && <FailureMessage failure={failure} />}
 
         <div className="flex items-center justify-between gap-3">
+        {/* Counted with the table on screen, which is always one of them. */}
         <p className="text-[12px] tabular-nums text-muted-foreground">
-          {formatCount(chosen.length)} of {formatCount(targets.length)} chosen
+          {formatCount(chosen.length + 1)} of {formatCount(targets.length + 1)} chosen
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -161,14 +189,18 @@ export function UpdateTargetsPicker({
           >
             Cancel
           </Button>
+          {/* Never dead: with nothing else ticked this writes the table on
+              screen, which is the one thing it was always going to do. */}
           <Button
-            disabled={chosen.length === 0 || updating}
+            disabled={updating}
             onClick={() => onConfirm(chosen)}
             className="h-9 rounded-[10px] text-[12.5px]"
           >
             {updating
               ? "Updating…"
-              : `Update ${formatCount(chosen.length)} ${chosen.length === 1 ? "table" : "tables"}`}
+              : `Update ${formatCount(chosen.length + 1)} ${
+                  chosen.length === 0 ? "table" : "tables"
+                }`}
           </Button>
         </div>
         </div>

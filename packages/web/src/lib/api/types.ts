@@ -3,6 +3,19 @@
 
 export type FieldType = "text" | "number" | "date" | "currency" | "boolean" | "list"
 
+/**
+ * The currencies a `currency` field can be marked as.
+ *
+ * Kept short on purpose, and kept in step with the worker: the coercer strips
+ * exactly these codes and their symbols before reading an amount, so a code
+ * offered here that it does not know turns every cell in the column into a
+ * value it cannot parse. Zamp/tests/test_backend_contract.py holds the two
+ * lists to each other.
+ */
+export type CurrencyCode = "USD" | "EUR" | "GBP" | "INR" | "JPY"
+
+export const CURRENCY_CODES: readonly CurrencyCode[] = ["USD", "EUR", "GBP", "INR", "JPY"] as const
+
 export const FIELD_TYPES: readonly FieldType[] = [
   "text",
   "number",
@@ -53,6 +66,13 @@ export type SchemaField = {
   label: string
   type: FieldType
   origin: "detected" | "added"
+  /**
+   * Which currency the amounts in this column are in. An assertion about the
+   * COLUMN — set once on the schema, never checked against a value — so a euro
+   * amount in a column marked USD is the user’s to clean up rather than a row
+   * the worker rejects. Only ever set when `type` is "currency".
+   */
+  currency?: CurrencyCode
 }
 
 export type TableSchema = {

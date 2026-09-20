@@ -1,4 +1,4 @@
-import type { Failure, FieldType, SchemaEntry, SchemaField } from "@/lib/api/types"
+import type { CurrencyCode, Failure, FieldType, SchemaEntry, SchemaField } from "@/lib/api/types"
 
 /**
  * Exactly two edits exist: change a field's type, and add a field.
@@ -6,6 +6,10 @@ import type { Failure, FieldType, SchemaEntry, SchemaField } from "@/lib/api/typ
  * There is deliberately no renameField and no removeField in this module. The
  * schema describes what is in the document, so renaming it would make the table
  * disagree with its own source — and a function that exists gets called.
+ *
+ * Marking a currency column with its code is not a third edit. It changes no
+ * shape — `shapeHash` never sees it — and claims nothing the document did not
+ * already say; it only records which currency the column was always in.
  */
 
 /** Order-independent over (key, type). FNV-1a, which is enough to compare shapes. */
@@ -27,6 +31,28 @@ export const sameShape = (
   a: Pick<SchemaField, "key" | "type">[],
   b: Pick<SchemaField, "key" | "type">[],
 ) => shapeHash(a) === shapeHash(b)
+
+/**
+ * Whether two field lists would save as the same thing — everything a write
+ * carries, not only what `shapeHash` covers.
+ *
+ * The currency code is the reason this exists beside `sameShape`. It is
+ * deliberately outside the shape, so that marking a column USD does not split
+ * it off from the tables it matches; but it is still something a save writes,
+ * and an editor that compared shapes alone left the button dead after the one
+ * edit that changed nothing else — swapping a column's code from USD to EUR.
+ *
+ * Matched by key rather than by position: the server is free to hand the
+ * fields back in its own order.
+ */
+export function sameFields(a: SchemaField[], b: SchemaField[]): boolean {
+  if (a.length !== b.length) return false
+  const theirs = new Map(b.map((field) => [field.key, field]))
+  return a.every((field) => {
+    const other = theirs.get(field.key)
+    return other !== undefined && other.type === field.type && other.currency === field.currency
+  })
+}
 
 /** One editable schema, held per (fileId, schemaId). */
 export type SchemaState = {
@@ -50,6 +76,21 @@ export type SchemaState = {
  */
 export const isEdited = (schema: SchemaState) =>
   schema.version > 1 || shapeHash(schema.original) !== shapeHash(schema.current)
+
+/**
+ * A table named the way a person would name it: by its file, and by the sheet
+ * inside it only when the file gave up more than one.
+ *
+ * A CSV holds a single table that the reader names after the file, so saying
+ * both is a stutter — "orders.csv · orders" — and it is the common case. A
+ * workbook of three sheets is the case the sheet name exists for.
+ */
+export function tableName(schema: SchemaState, all: SchemaState[]): string {
+  const siblings = all.filter((s) => s.fileId === schema.fileId).length
+  return siblings > 1 && schema.tableLabel
+    ? `${schema.fileName} · ${schema.tableLabel}`
+    : schema.fileName
+}
 
 /** The one edit that is not a type change. */
 export function validateNewField(
@@ -82,8 +123,48 @@ export function changeFieldType(
   key: string,
   type: FieldType,
 ): SchemaField[] {
-  return fields.map((field) => (field.key === key ? { ...field, type } : field))
+  return fields.map((field) => {
+    if (field.key !== key) return field
+    const next: SchemaField = { ...field, type }
+    // A code is a claim about a column of amounts, so it leaves with the
+    // amounts. `validateEdit` strips it on the same rule, and a draft that
+    // kept it would show a currency in the header that the next save removes.
+    if (type !== "currency") delete next.currency
+    return next
+  })
 }
+
+/**
+ * Which currency a currency column is in. `undefined` clears it, which is the
+ * honest state for a column nobody has said anything about — the header then
+ * reads exactly as it always did.
+ */
+export function changeFieldCurrency(
+  fields: SchemaField[],
+  key: string,
+  currency: CurrencyCode | undefined,
+): SchemaField[] {
+  return fields.map((field) => {
+    if (field.key !== key || field.type !== "currency") return field
+    const next: SchemaField = { ...field }
+    if (currency) next.currency = currency
+    else delete next.currency
+    return next
+  })
+}
+
+/**
+ * What a column is called wherever it is read: the table header, the filter
+ * chips that name it, and the CSV downloaded from it.
+ *
+ * Derived rather than stored. Writing "total (USD)" into `label` would mean
+ * parsing the suffix back out to change the code, and the worker rewrites
+ * `label` from the field name every time it persists a detected schema — which
+ * would silently eat it. The code stays the one source of truth; this is a
+ * view of it.
+ */
+export const fieldHeader = (field: Pick<SchemaField, "key" | "type" | "currency">): string =>
+  field.type === "currency" && field.currency ? `${field.key} (${field.currency})` : field.key
 
 /** Edit two: add a field. Added fields are marked, because they did not come from the document. */
 export function addField(fields: SchemaField[], name: string, type: FieldType): SchemaField[] {

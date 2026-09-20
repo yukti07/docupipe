@@ -2,7 +2,7 @@ import "server-only"
 
 import type { PoolClient } from "pg"
 
-import type { FailureClass, FieldType } from "@/lib/api/types"
+import type { CurrencyCode, FailureClass, FieldType } from "@/lib/api/types"
 import { query, queryOne } from "./client"
 
 /**
@@ -82,6 +82,12 @@ export type SchemaFieldJson = {
   type: FieldType
   required?: boolean
   origin: "detected" | "added"
+  /**
+   * Which currency this column's amounts are in. Written only on a `currency`
+   * field — `validateEdit` strips it from every other type — and read back out
+   * wherever a column is named. The worker round-trips it on the same rule.
+   */
+  currency?: CurrencyCode
 }
 
 export type ResultRow = {

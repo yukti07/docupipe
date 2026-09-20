@@ -57,14 +57,17 @@ export function PendingSchemaCard({
             ) : (
               <Bar className="h-[15px]" width={148} />
             )}
-            {/* Neutral, not "working": this is one file of several being read,
-                and a batch of six should not wear six accent pills. */}
+            {/* Bare while it is working: a batch of six should not wear six
+                pills, and what is worth seeing on this card is which file is
+                still out — not a block of colour repeated down the list. The
+                one state that has gone wrong keeps its pill. */}
             <StatusBadge
-              variant={stalled ? "review" : "neutral"}
+              variant={stalled ? "review" : "success"}
+              appearance={stalled ? "pill" : "bare"}
               icon={stalled ? undefined : Loader2}
               className="shrink-0"
             >
-              {stalled ? "Taking longer than expected" : "Reading"}
+              {stalled ? "Taking longer than expected" : "Detecting"}
             </StatusBadge>
           </div>
 

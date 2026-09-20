@@ -51,6 +51,13 @@ class SchemaField(BaseModel):
     name: str = Field(min_length=1)
     type: FieldType
     required: bool = False
+
+    #: Which currency this column's amounts are in, as an ISO code. It is an
+    #: assertion about the COLUMN, made once on the schema, and never a check
+    #: on a value: a euro amount in a column marked USD is a data-quality
+    #: matter for the user, not a row this worker may reject. Only meaningful
+    #: when `type` is "currency"; None everywhere else.
+    currency: str | None = None
     description: str | None = None
     aliases: list[str] = Field(default_factory=list)
     fields: list["SchemaField"] = Field(default_factory=list)

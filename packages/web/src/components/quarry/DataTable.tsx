@@ -26,6 +26,7 @@ import { FIELD_TYPE_LABELS } from "@/components/quarry/FieldTypeSelect"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
 import type { CellValue, FieldType, SchemaField, TableRow } from "@/lib/api/types"
 import { measureColumns, type ColumnSpec } from "@/lib/colwidth"
+import { fieldHeader } from "@/lib/schema"
 import {
   CELL_PADDING,
   CELL_TEXT,
@@ -131,7 +132,7 @@ export function DataTable({
       ...fields.map((field) =>
         helper.accessor((row) => row.values[field.key]?.display ?? "", {
           id: field.key,
-          header: field.key,
+          header: fieldHeader(field),
           // The column's own type decides what its filter may ask and how its
           // cells are read, so the predicate closes over the field rather than
           // being looked up by name in a shared registry.
@@ -177,10 +178,16 @@ export function DataTable({
     return (id: string): FieldType => types.get(id) ?? "text"
   }, [fields])
 
-  /* A field column's id is its key, which is also its header. The source
-     column's is not: it is `__source`, and naming a control after it puts an
-     internal id in front of whoever is reading the label out. */
-  const labelOf = (id: string) => (id === SOURCE_ID ? (sourceColumn?.header ?? id) : id)
+  /* A field column's id is its key, but its header is not: a currency column
+     is named with the currency it is in. The source column's id is neither —
+     it is `__source`, and naming a control after that puts an internal id in
+     front of whoever is reading the label out. */
+  const headers = useMemo(
+    () => new Map(fields.map((field) => [field.key, fieldHeader(field)])),
+    [fields],
+  )
+  const labelOf = (id: string) =>
+    id === SOURCE_ID ? (sourceColumn?.header ?? id) : (headers.get(id) ?? id)
 
   /** Every column in the order the table was given them. */
   const naturalOrder = useMemo(
@@ -211,7 +218,7 @@ export function DataTable({
         : []),
       ...fields.map((field) => ({
         id: field.key,
-        header: field.key,
+        header: fieldHeader(field),
         type: field.type,
         badge: FIELD_TYPE_LABELS[field.type],
       })),

@@ -139,6 +139,26 @@ def test_detected_field_types_are_all_types_the_ui_can_render() -> None:
 
 
 @pytest.mark.skipif(not TYPES_TS.exists(), reason="web package not present")
+def test_every_currency_the_editor_offers_is_one_the_coercer_can_read(processor) -> None:
+    """The picker and the coercer share one list, in two languages.
+
+    A code the schema editor offers that the coercer does not know leaves its
+    symbol sitting in front of the number. The amount stops parsing, and every
+    cell in the column comes back as the raw string it arrived as — silently,
+    and for the whole column.
+    """
+    body = re.search(r"export const CURRENCY_CODES: readonly CurrencyCode\[\] = \[(.*?)\]",
+                     TYPES_TS.read_text(encoding="utf-8"), re.S)
+    assert body, "no CURRENCY_CODES in types.ts"
+    offered = re.findall(r'"([A-Z]{3})"', body.group(1))
+    assert offered, "CURRENCY_CODES is empty"
+
+    coerce = processor.TypeCoercer().coerce
+    for code in offered:
+        assert coerce(f"{code} 1,500", "currency") == 1500.0, f"{code} is offered but not read"
+
+
+@pytest.mark.skipif(not TYPES_TS.exists(), reason="web package not present")
 def test_detected_fields_carry_an_origin_the_ui_understands() -> None:
     fields = to_backend_fields(Schema(name="records", fields=[SchemaField(name="id", type="integer")]))
     assert fields[0]["origin"] == "detected"

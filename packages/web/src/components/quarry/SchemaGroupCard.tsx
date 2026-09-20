@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, ChevronDown, ChevronRight, FileText, Pencil, Plus, Sparkles } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, Eye, FileText, Pencil, Plus, Sparkles } from "lucide-react"
 import { useState } from "react"
 import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge"
 import { FIELD_TYPE_LABELS } from "@/components/quarry/FieldTypeSelect"
@@ -32,6 +32,7 @@ export function SchemaGroupCard({
   group,
   selected,
   unsaved,
+  readOnly,
   defaultOpen,
   onOpen,
   className,
@@ -41,6 +42,12 @@ export function SchemaGroupCard({
   selected?: boolean
   /** The open editor is holding a draft of this group's schema. */
   unsaved?: boolean
+  /**
+   * The batch has been converted, so the panel opens on a record rather than
+   * an editor. The button says so with an eye: a pencil on a screen where
+   * nothing can be changed is an offer the screen cannot keep.
+   */
+  readOnly?: boolean
   defaultOpen?: boolean
   onOpen: (schemaId: string) => void
   className?: string
@@ -53,6 +60,16 @@ export function SchemaGroupCard({
   const tables = group.schemas.length
   const files = [...new Set(group.schemas.map((s) => s.fileName))]
   const status = STATUS[schemaStatus(group.schemas, unsaved)]
+
+  // The badge says this schema was changed; these say *what* was changed. A
+  // field is marked when it is not the one the document gave: added outright,
+  // or read as one type and saved as another.
+  //
+  // Read against the shape this browser first saw, which is all there is to
+  // compare with — reopening the batch later makes the saved schema the
+  // detected one, and the marks go with it. `isEdited` has the same horizon,
+  // and the version counter behind the badge is what survives it.
+  const detected = new Map(group.schemas[0].original.map((f) => [f.key, f.type]))
   const shown = all ? files : files.slice(0, NAMED)
   const rest = files.length - shown.length
 
@@ -104,20 +121,24 @@ export function SchemaGroupCard({
           </div>
 
           <ul className="mt-2.5 flex flex-wrap gap-1.5">
-            {group.schemas[0].current.map((field) => (
-              <li
-                key={field.key}
-                className={cn(
-                  "rounded-md border px-1.5 py-0.5 font-mono text-[11px]",
-                  field.origin === "added"
-                    ? "border-primary-tint-border bg-primary-tint text-foreground"
-                    : "border-border-faint bg-muted text-subtle-foreground",
-                )}
-              >
-                {field.key}
-                <span className="text-muted-foreground"> · {FIELD_TYPE_LABELS[field.type]}</span>
-              </li>
-            ))}
+            {group.schemas[0].current.map((field) => {
+              const added = field.origin === "added"
+              const retyped = detected.has(field.key) && detected.get(field.key) !== field.type
+              return (
+                <li
+                  key={field.key}
+                  className={cn(
+                    "rounded-md border px-1.5 py-0.5 font-mono text-[11px]",
+                    added || retyped
+                      ? "border-primary-tint-border bg-primary-tint text-foreground"
+                      : "border-border-faint bg-muted text-subtle-foreground",
+                  )}
+                >
+                  {field.key}
+                  <span className="text-muted-foreground"> · {FIELD_TYPE_LABELS[field.type]}</span>
+                </li>
+              )
+            })}
           </ul>
         </div>
 
@@ -131,14 +152,24 @@ export function SchemaGroupCard({
           variant="outline"
           size="icon"
           disabled={selected}
-          aria-label={selected ? "This schema is open in the panel" : "Edit this schema"}
+          aria-label={
+            selected
+              ? "This schema is open in the panel"
+              : readOnly
+                ? "View this schema"
+                : "Edit this schema"
+          }
           onClick={() => onOpen(group.schemas[0].schemaId)}
           // Puts a schema in the panel, so the panel's close-on-press-outside
           // leaves it alone rather than shutting under the press. See BatchShell.
           data-panel-open=""
           className="size-9 shrink-0 rounded-[10px] border-primary-tint-border bg-primary-tint text-primary hover:bg-primary-tint-strong hover:text-primary"
         >
-          <Pencil aria-hidden className="size-3.5" />
+          {readOnly ? (
+            <Eye aria-hidden className="size-3.5" />
+          ) : (
+            <Pencil aria-hidden className="size-3.5" />
+          )}
         </Button>
       </div>
 
@@ -155,7 +186,7 @@ export function SchemaGroupCard({
                   type="button"
                   disabled={!schemaId}
                   onClick={() => schemaId && onOpen(schemaId)}
-                  aria-label={`Edit the schema for ${name}`}
+                  aria-label={`${readOnly ? "View" : "Edit"} the schema for ${name}`}
                   data-panel-open=""
                   className="flex w-full min-w-0 items-center gap-2 px-4 py-2.5 text-left hover:bg-muted disabled:pointer-events-none"
                 >

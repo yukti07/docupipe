@@ -28,9 +28,18 @@ def to_backend_fields(schema: Schema) -> list[dict]:
     A detected field that arrives without it renders as neither.
     """
     types = {"string": "text", "integer": "number", "datetime": "date", "array": "list", "object": "text", "null": "text"}
-    return [{"key": field.name, "label": field.name, "type": types.get(field.type, field.type), "origin": "detected",
-             "required": field.required, "description": field.description, "aliases": field.aliases}
-            for field in schema.fields]
+    emitted = []
+    for field in schema.fields:
+        backend_type = types.get(field.type, field.type)
+        item = {"key": field.name, "label": field.name, "type": backend_type, "origin": "detected",
+                "required": field.required, "description": field.description, "aliases": field.aliases}
+        # Carried only where it means something. A `currency` left on a field
+        # the user has since retyped is a claim about a column that no longer
+        # holds amounts, and the schema editor strips it on the same rule.
+        if backend_type == "currency" and field.currency:
+            item["currency"] = field.currency
+        emitted.append(item)
+    return emitted
 
 
 def from_backend_schema(fields: list[dict], metadata: dict | None = None) -> Schema:
@@ -38,13 +47,20 @@ def from_backend_schema(fields: list[dict], metadata: dict | None = None) -> Sch
     canonical_fields = metadata.get("canonical_fields")
     if canonical_fields:
         return Schema(name="records", fields=canonical_fields, metadata=metadata.get("schema", {}))
-    types = {"text": "string", "currency": "number", "list": "array"}
+    # `currency` is deliberately NOT flattened onto `number`. It used to be,
+    # and the cost was invisible: an edited schema reached the coercer as a
+    # plain number, where the strict branch rejects any amount whose symbol it
+    # does not know and fails the whole row over it. The lenient currency
+    # branch only ever ran for a shape nobody had touched.
+    types = {"text": "string", "list": "array"}
     normalized = []
     for field in fields:
+        field_type = types.get(field.get("type"), field.get("type"))
         item_type = "string" if field.get("type") == "list" else None
-        normalized.append({"name": field.get("key") or field.get("label"), "type": types.get(field.get("type"), field.get("type")),
+        normalized.append({"name": field.get("key") or field.get("label"), "type": field_type,
                            "required": field.get("required", False), "description": field.get("description"),
-                           "aliases": field.get("aliases", []), "item_type": item_type})
+                           "aliases": field.get("aliases", []), "item_type": item_type,
+                           "currency": field.get("currency") if field_type == "currency" else None})
     return Schema(name="records", fields=normalized, metadata=metadata or {})
 
 

@@ -143,12 +143,7 @@ async function getMergedTable(
     tableLabel: merge.name,
     pageRange: null,
     merged: true,
-    fields: fields.map((field) => ({
-      key: field.key,
-      label: field.label,
-      type: field.type,
-      origin: field.origin,
-    })),
+    fields: fields.map(toField),
     rows,
   }
 }
@@ -272,12 +267,7 @@ export function toTableData(input: {
     }
   }
 
-  const fields: SchemaField[] = input.fields.map((field) => ({
-    key: field.key,
-    label: field.label,
-    type: field.type,
-    origin: field.origin,
-  }))
+  const fields: SchemaField[] = input.fields.map(toField)
 
   const rows: TableRow[] = input.records.map((record) => {
     const data = record.data ?? {}
@@ -323,6 +313,24 @@ export function toTableData(input: {
     pageRange: null,
     fields,
     rows,
+  }
+}
+
+/**
+ * The stored field, as the client's field.
+ *
+ * One projection rather than one per caller: `currency` was added to
+ * `SchemaFieldJson` long after these were written, and a hand-listed copy
+ * drops it by saying nothing about it — the column then loses its currency on
+ * whichever screen forgot.
+ */
+function toField(field: SchemaFieldJson): SchemaField {
+  return {
+    key: field.key,
+    label: field.label,
+    type: field.type,
+    origin: field.origin,
+    ...(field.currency ? { currency: field.currency } : {}),
   }
 }
 

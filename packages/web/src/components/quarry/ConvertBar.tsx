@@ -62,9 +62,10 @@ export function ConvertBar({
     : convertAvailable
       ? null
       : (convertBlockedReason ?? "Waiting for every file to arrive")
-  const working = Boolean(
-    progress && !stalled && (progress.uploading || pendingShapes(progress) > 0),
-  )
+  // The bytes, and nothing else. Reading the shapes carries on in the
+  // background and neither of the buttons waits for it, so a spinner that kept
+  // turning after the last file landed was reporting a wait nobody was in.
+  const working = Boolean(progress && progress.uploading)
 
   return (
     <BatchFooter
@@ -127,14 +128,10 @@ export function ConvertBar({
   )
 }
 
-const pendingShapes = (p: PrepareProgress) =>
-  Math.max(0, p.uploaded - p.schemas - p.withoutShape)
 
-function uploadLine({ uploaded, total, uploading, inFlight }: PrepareProgress): string {
-  // "Uploading 2 of 3" reads as though two are in flight when two have landed.
-  // The count of what is done and the count of what is moving are two numbers.
-  const done = `${formatCount(uploaded)} of ${formatCount(total)} uploaded`
-  if (uploading && inFlight > 0) return `${done} · ${formatCount(inFlight)} going up`
-  return done
-}
+// One number, and the one anybody acts on: how much of the drop has landed.
+// The count of files whose bytes are moving right now was beside it, and it
+// said nothing the first number and the bar above it do not already say.
+const uploadLine = ({ uploaded, total }: PrepareProgress): string =>
+  `${formatCount(uploaded)} of ${formatCount(total)} uploaded`
 

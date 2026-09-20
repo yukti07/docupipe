@@ -71,6 +71,31 @@ describe("BatchNav", () => {
     expect(screen.getByText("Results")).toBeVisible()
   })
 
+  it("ticks Results once the batch has results, and not before", () => {
+    const ticked = (container: HTMLElement, step: string) =>
+      Boolean(stepEl(container, step)?.querySelector("svg.lucide-check"))
+
+    // Mid-conversion the step already reads "done" — it is behind you in the
+    // sense that you are past the gate — but nothing has come back yet.
+    const { container, rerender } = render(
+      <BatchNav requestId={REQUEST} current="schemas" done={settled} phase="converting" />,
+    )
+    expect(stepState(container, "results")).toBe("done")
+    expect(ticked(container, "results")).toBe(false)
+    expect(ticked(container, "files")).toBe(true)
+
+    rerender(<BatchNav requestId={REQUEST} current="schemas" done={settled} phase="converted" />)
+    expect(ticked(container, "results")).toBe(true)
+  })
+
+  it("never ticks the step you are standing on", () => {
+    const { container } = render(
+      <BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />,
+    )
+    expect(stepState(container, "results")).toBe("current")
+    expect(stepEl(container, "results")?.querySelector("svg.lucide-check")).toBeNull()
+  })
+
   it("carries no step numbers at all", () => {
     const { container } = render(
       <BatchNav requestId={REQUEST} current="files" done={settled} phase="prepare" />,

@@ -1,4 +1,5 @@
 import type { SchemaField, TableData, TableRow } from "@/lib/api/types"
+import { fieldHeader } from "@/lib/schema"
 
 export type Delimiter = "," | "\t"
 
@@ -51,7 +52,10 @@ export function toCsv(
   const summary: CsvSummary = { rows: 0, failedRows: 0, notFound: 0, marked: 0 }
 
   const header: string[] = options.sourceColumn ? ["source_file"] : []
-  header.push(...table.fields.map((field: SchemaField) => field.key))
+  // Named as the screen names them, so a currency column carries its code out
+  // of here: the numbers in the file are bare, and "1299.50" in a column
+  // called `total` does not say what it is 1299.50 of.
+  header.push(...table.fields.map((field: SchemaField) => fieldHeader(field)))
   const lines = [header.map((cell) => escapeCell(cell, delimiter)).join(delimiter)]
 
   for (const row of table.rows) {

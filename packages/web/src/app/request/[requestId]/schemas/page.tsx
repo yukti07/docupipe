@@ -1,6 +1,5 @@
 "use client"
 
-import { ArrowRight } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { use, useEffect, useMemo, useState } from "react"
@@ -18,7 +17,7 @@ import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
-import { allShapesSettled, groupByCurrentShape, updateTargetsFor } from "@/lib/schema"
+import { allShapesSettled, groupByCurrentShape, tableName, updateTargetsFor } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useBatch } from "@/state/batch"
 import { useWorkspace } from "@/state/workspace"
@@ -98,6 +97,12 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
   // Wider than the card: every table this schema fits, including the ones
   // short of one of its fields, which no group would ever put beside it.
   const targets = openSchema ? updateTargetsFor(batch.schemas, openSchema) : []
+  // The tables the panel could equally have opened on. It picked one of them
+  // without being asked — the group's first — so the panel offers the rest.
+  const panelTables = (openGroup?.schemas ?? []).map((s) => ({
+    schemaId: s.schemaId,
+    label: tableName(s, batch.schemas),
+  }))
 
   const tableCount = batch.schemas.length
   const fileCount = new Set(batch.schemas.map((s) => s.fileId)).size
@@ -192,7 +197,9 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
             title={`Schema of ${formatCount(openGroup.schemas.length)} ${
               openGroup.schemas.length === 1 ? "table" : "tables"
             }`}
-            subtitle={`from ${openSchema.fileName} · ${openSchema.tableLabel}`}
+            subtitle={`from ${tableName(openSchema, batch.schemas)}`}
+            tables={panelTables}
+            onPickTable={open}
             updateTargets={targets}
             onDraftChange={setDraftOn}
             onClose={close}
@@ -233,9 +240,7 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
                       ? null
                       : (batch.convertBlockedReason ?? "Waiting for every file to arrive")
                 }
-                className="gap-1.5"
               >
-                {!converting && <ArrowRight aria-hidden className="size-4" />}
                 {converting ? "Converting…" : "Convert"}
               </GatedButton>
             )
@@ -255,7 +260,7 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
                   groups.length === 1 ? "schema" : "schemas"
                 } to review`
               : reading
-                ? "Reading your schemas"
+                ? "Detecting schemas"
                 : "Nothing to review"}
           </h1>
           {frozen && (
@@ -289,6 +294,7 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
               defaultOpen={index === 0}
               selected={group.schemas.some((s) => s.schemaId === openSchemaId)}
               unsaved={group.schemas.some((s) => s.schemaId === draftOn)}
+              readOnly={frozen}
               onOpen={open}
             />
           ))}

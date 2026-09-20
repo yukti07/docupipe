@@ -5,7 +5,9 @@ import {
   addField,
   allShapesSettled,
   partitionFailures,
+  changeFieldCurrency,
   changeFieldType,
+  fieldHeader,
   groupByCurrentShape,
   isEdited,
   shapeHash,
@@ -253,5 +255,90 @@ describe("partitionFailures", () => {
 
   it("ignores entries that did not fail", () => {
     expect(partitionFailures([ready("f1", "sch_0")])).toEqual({ files: [], tables: [] })
+  })
+})
+
+describe("the currency on a column", () => {
+  const total = (): SchemaField[] => [f("invoice_number", "text"), f("total", "currency")]
+
+  it("is set on the field, not written into its name", () => {
+    const [, amount] = changeFieldCurrency(total(), "total", "USD")
+    expect(amount.currency).toBe("USD")
+    // The key is what every row is keyed by and what the worker matches on.
+    // A code baked into it would have to be parsed back out to change.
+    expect(amount.key).toBe("total")
+  })
+
+  it("names the column wherever the column is named", () => {
+    const [, amount] = changeFieldCurrency(total(), "total", "EUR")
+    expect(fieldHeader(amount)).toBe("total (EUR)")
+  })
+
+  it("leaves a column nobody has spoken for reading exactly as it did", () => {
+    expect(fieldHeader(f("total", "currency"))).toBe("total")
+    expect(fieldHeader(f("invoice_number", "text"))).toBe("invoice_number")
+  })
+
+  it("can be taken back off", () => {
+    const marked = changeFieldCurrency(total(), "total", "GBP")
+    const [, amount] = changeFieldCurrency(marked, "total", undefined)
+    expect(amount).not.toHaveProperty("currency")
+    expect(fieldHeader(amount)).toBe("total")
+  })
+
+  it("is refused on a column that does not hold amounts", () => {
+    const [reference] = changeFieldCurrency(total(), "invoice_number", "USD")
+    expect(reference).not.toHaveProperty("currency")
+  })
+
+  it("leaves with the amounts when the column is retyped", () => {
+    const marked = changeFieldCurrency(total(), "total", "INR")
+    const [, retyped] = changeFieldType(marked, "total", "text")
+    // The server strips it on the same rule. A draft that kept it would show
+    // a currency in the header that the next save silently removes.
+    expect(retyped).not.toHaveProperty("currency")
+  })
+
+  it("survives a type change that stays on currency", () => {
+    const marked = changeFieldCurrency(total(), "total", "JPY")
+    const [, same] = changeFieldType(marked, "total", "currency")
+    expect(same.currency).toBe("JPY")
+  })
+
+  it("is not part of the shape, so it never splits a group or blocks apply-to-all", () => {
+    // Two tables that differ only by their currency still read the same way,
+    // and `updateSchema` refuses a batch whose shapes disagree.
+    expect(shapeHash(changeFieldCurrency(total(), "total", "USD"))).toBe(shapeHash(total()))
+  })
+})
+
+describe("tableName", () => {
+  const sheet = (schemaId: string, fileId: string, tableLabel: string): SchemaState => ({
+    ...state(schemaId, INVOICE),
+    fileId,
+    fileName: "bank_statement.xlsx",
+    tableLabel,
+  })
+
+  it("is the file alone when the file gave up one table", () => {
+    // A CSV's one table is named after the file it came from, so saying both
+    // reads as a stutter.
+    const only = { ...state("s1", INVOICE), fileName: "orders.csv", tableLabel: "orders" }
+    expect(schema.tableName(only, [only])).toBe("orders.csv")
+  })
+
+  it("names the sheet when the file gave up more than one", () => {
+    const all = [
+      sheet("s1", "F1", "Transactions"),
+      sheet("s2", "F1", "Account Summary"),
+    ]
+    expect(schema.tableName(all[0], all)).toBe("bank_statement.xlsx · Transactions")
+    expect(schema.tableName(all[1], all)).toBe("bank_statement.xlsx · Account Summary")
+  })
+
+  it("counts the tables of its own file, not of the batch", () => {
+    const mine = sheet("s1", "F1", "Transactions")
+    const theirs = { ...sheet("s2", "F2", "Sheet1"), fileName: "other.xlsx" }
+    expect(schema.tableName(mine, [mine, theirs])).toBe("bank_statement.xlsx")
   })
 })

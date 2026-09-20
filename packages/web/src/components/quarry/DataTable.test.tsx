@@ -435,6 +435,29 @@ describe("DataTable", () => {
     expect(container.querySelector("tbody")).toBeNull()
   })
 
+  it("names a currency column with the currency it is in", () => {
+    const priced = [field("invoice_number"), { ...field("total", "currency"), currency: "EUR" as const }]
+    render(<DataTable fields={priced} rows={ROWS} />)
+    const headers = screen.getAllByRole("columnheader")
+
+    expect(within(headers[1]).getByText("total (EUR)")).toBeVisible()
+    // Derived at render. The key is untouched, which is what every row is
+    // keyed by and what the worker matches on.
+    expect(within(headers[1]).queryByText("total")).toBeNull()
+  })
+
+  it("names the currency column the same way in the control that filters it", () => {
+    const priced = [field("invoice_number"), { ...field("total", "currency"), currency: "USD" as const }]
+    render(<DataTable fields={priced} rows={ROWS} />)
+    expect(screen.getByRole("button", { name: "Filter total (USD)" })).toBeVisible()
+  })
+
+  it("leaves a currency column nobody has marked reading as it always did", () => {
+    render(<DataTable fields={FIELDS} rows={ROWS} />)
+    const headers = screen.getAllByRole("columnheader")
+    expect(within(headers[1]).getByText("total")).toBeVisible()
+  })
+
   it("says each column's declared type in its header, which is the structure itself", () => {
     render(<DataTable fields={FIELDS} rows={ROWS} />)
     const headers = screen.getAllByRole("columnheader")

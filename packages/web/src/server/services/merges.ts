@@ -375,6 +375,7 @@ function toFields(fields: SchemaFieldJson[]): SchemaField[] {
     label: field.label,
     type: field.type,
     origin: field.origin,
+    ...(field.currency ? { currency: field.currency } : {}),
   }))
 }
 

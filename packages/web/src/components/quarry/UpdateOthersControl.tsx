@@ -20,24 +20,38 @@ import { cn } from "@/lib/utils"
  * button. Opening it offers the two ways of meaning it: pick the tables by
  * hand, or take the lot.
  *
- * It stays shut while there is an unsaved edit. Writing a draft onto other
- * files would spread a shape the person has not committed to even here.
+ * An unsaved edit does not shut it. The write is one write: it carries the
+ * change to the table on screen and to every table chosen beside it, so there
+ * is no draft going out that this table has not taken too. It does stay shut
+ * while this schema is still exactly what the document gave, since then there
+ * is nothing to spread but the shape those tables already have.
  */
 export function UpdateOthersControl({
   targets,
+  sourceLabel,
   onSelect,
   onUpdateAll,
   updating,
-  disabled,
+  reason,
   className,
 }: {
   targets: UpdateTarget[]
+  /**
+   * The table on screen. It is never one of the targets — every write includes
+   * it — so it is named here to be listed among them rather than chosen.
+   */
+  sourceLabel?: string
   /** Open the picker. */
   onSelect: () => void
   /** Write onto every target at once. */
   onUpdateAll: () => void
   updating?: boolean
-  disabled?: boolean
+  /**
+   * Present means shut, and the string says why — in the accessible name, the
+   * way `GatedButton` does it. A dead control with no reason on a panel this
+   * dense is a button people press twice and then give up on.
+   */
+  reason?: string | null
   className?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -47,7 +61,9 @@ export function UpdateOthersControl({
   // shows before "Select tables" ever writes anything.
   const [confirming, setConfirming] = useState(false)
 
-  const count = formatCount(targets.length)
+  // Counted with the table on screen, because that is what the write reaches.
+  const reached = targets.length + 1
+  const count = formatCount(reached)
   const differing = targets.filter((t) => t.added.length > 0).length
 
   if (targets.length === 0) {
@@ -58,7 +74,7 @@ export function UpdateOthersControl({
     )
   }
 
-  const label = "Update matching tables"
+  const label = "Update All"
 
   function onOpenChange(next: boolean) {
     setOpen(next)
@@ -70,11 +86,11 @@ export function UpdateOthersControl({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          disabled={disabled || updating}
-          aria-label={disabled ? `${label} — save your change first` : undefined}
+          disabled={Boolean(reason) || updating}
+          aria-label={reason ? `${label} — ${reason}` : undefined}
           className={cn("h-9 justify-between gap-1.5 rounded-[10px] bg-card text-[12.5px]", className)}
         >
-          {updating ? `Updating ${count} ${targets.length === 1 ? "table" : "tables"}…` : label}
+          {updating ? `Updating ${count} ${reached === 1 ? "table" : "tables"}…` : label}
           {open ? (
             <ChevronUp aria-hidden className="size-3.5 opacity-60" />
           ) : (
@@ -87,10 +103,19 @@ export function UpdateOthersControl({
         {confirming ? (
           <div className="flex flex-col gap-2 p-1">
             <p className="px-1.5 pt-1 text-[12.5px] font-medium">
-              Write onto all {count} matching {targets.length === 1 ? "table" : "tables"}?
+              Write onto all {count} matching {reached === 1 ? "table" : "tables"}?
             </p>
             <ScrollArea className="max-h-40">
               <ul className="flex flex-col gap-1 px-1.5">
+                {/* First, and not as a target: the table on screen takes this
+                    schema whatever else is chosen, so a list that left it out
+                    would under-report what the button is about to do. */}
+                {sourceLabel && (
+                  <li className="truncate font-mono text-[11.5px] text-foreground">
+                    {sourceLabel}
+                    <span className="font-sans text-muted-foreground"> · this table</span>
+                  </li>
+                )}
                 {targets.map((target) => (
                   <li
                     key={target.schema.schemaId}
@@ -112,7 +137,7 @@ export function UpdateOthersControl({
                 }}
                 className="h-8 rounded-lg text-[12.5px]"
               >
-                Update {count} {targets.length === 1 ? "table" : "tables"}
+                Update {count} {reached === 1 ? "table" : "tables"}
               </Button>
               <Button
                 size="sm"
