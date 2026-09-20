@@ -698,6 +698,13 @@ async function runUpload(
     },
   })
 
+  // Every row already shows where it landed — uploaded, or failed — the moment
+  // uploadAll settles, so that is what the footer's clock waits on. Confirming
+  // each file with the server is a round trip nobody sees: it runs on, but
+  // holding the spinner and the two buttons for it would be a wait spent on a
+  // network call the screen never mentions.
+  setUploading(false)
+
   await Promise.all(inFlight)
 
   // Anything that reached the bucket but whose confirm did not reach us. Left
@@ -708,7 +715,6 @@ async function runUpload(
       !outcomes.get(file.localId) && byLocalId[file.localId] && !confirmed.has(file.localId),
   )
   await confirm(userId, requestId, missed, byLocalId, dispatch)
-  setUploading(false)
 }
 
 /**
