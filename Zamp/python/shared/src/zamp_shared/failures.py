@@ -35,6 +35,7 @@ _BY_CODE: dict[str, str] = {
     # its format
     "UNSUPPORTED_MIME_TYPE": "format_unsupported",
     "INVALID_INPUT": "format_corrupt",
+    "INVALID_PDF": "format_corrupt",
     "EXTRACT_EMPTY": "extract_empty",
     # its shape
     "SCHEMA_NOT_FOUND": "schema_not_found",

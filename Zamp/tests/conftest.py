@@ -41,6 +41,7 @@ def processor():
     """The data-processor modules the image tests need, imported safely."""
     with _processor_on_path():
         from app.readers.image import GeminiImageReader
+        from app.readers.pdf import GeminiPdfReader
         from app.readers.xlsx import XlsxReader
         from app.pipeline.processing_pipeline import ProcessingPipeline
         from app.pipeline.processor_registry import ProcessorRegistry
@@ -50,6 +51,7 @@ def processor():
         from app.transformation.mapper import SchemaMapper
 
         yield type("Processor", (), {"GeminiImageReader": staticmethod(GeminiImageReader),
+                                     "GeminiPdfReader": staticmethod(GeminiPdfReader),
                                      "XlsxReader": staticmethod(XlsxReader),
                                      "ProcessingPipeline": staticmethod(ProcessingPipeline),
                                      "ProcessorRegistry": staticmethod(ProcessorRegistry),

@@ -21,6 +21,7 @@ from app.readers.base import SourceReader
 from app.readers.csv import CsvReader
 from app.readers.image import SUPPORTED_MIME_TYPES as IMAGE_MIME_TYPES, GeminiImageReader
 from app.readers.json import JsonReader
+from app.readers.pdf import GeminiPdfReader
 from app.readers.xlsx import XlsxReader
 from app.transformation.coercion import TypeCoercer
 from app.transformation.mapper import SchemaMapper
@@ -57,7 +58,7 @@ def get_pipeline() -> ProcessingPipeline:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": XlsxReader(settings.processing.csv_chunk_size),
         }
         if settings.llm.enabled and settings.llm.provider == "gemini" and settings.llm.api_key:
-            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.6-flash",
+            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.8-flash",
                                   temperature=settings.llm.temperature,
                                   max_output_tokens=settings.llm.max_output_tokens,
                                   max_retries=settings.llm.max_retries,
@@ -66,6 +67,8 @@ def get_pipeline() -> ProcessingPipeline:
             image = GeminiImageReader(client, PromptRepository(settings.schema.prompts_dir),
                                       settings.schema.max_image_bytes)
             readers.update(dict.fromkeys(IMAGE_MIME_TYPES, image))
+            readers["application/pdf"] = GeminiPdfReader(
+                client, PromptRepository(settings.schema.prompts_dir), settings.schema.max_pdf_bytes)
         registry = ProcessorRegistry(readers)
         _pipeline = ProcessingPipeline(
             FileRepository(database), SchemaRepository(database), ProcessingRepository(database),

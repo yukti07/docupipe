@@ -39,7 +39,7 @@ def parse_records(raw: str, schema: Schema) -> list[dict[str, Any]]:
     if not records:
         # A schema was detected from this image, so something table-shaped was
         # there. Zero rows means the read failed, not that the file was empty.
-        raise InvalidInput("Gemini returned no records for this image", "EXTRACT_EMPTY")
+        raise InvalidInput("Gemini returned no records for this document", "EXTRACT_EMPTY")
 
     log.info("parsed records from gemini", extra={"records": len(records), "fields": len(schema.fields)})
     return records

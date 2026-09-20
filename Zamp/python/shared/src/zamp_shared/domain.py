@@ -104,6 +104,11 @@ class DetectedTable(BaseModel):
     ord: int = Field(ge=0)
     label: str | None = None
     hidden: bool = False
+    #: Read it as `.schema_definition`. The wire name is `schema`, but pydantic
+    #: already owns that attribute as a deprecated classmethod, so `table.schema`
+    #: silently hands back a bound method instead of this — and fails much later,
+    #: somewhere that looks unrelated. The alias keeps the JSON honest; the
+    #: Python name keeps the attribute reachable.
     schema_definition: Schema | None = Field(default=None, alias="schema", serialization_alias="schema")
 
     #: Set instead of a schema when this table alone could not be read. The
@@ -121,6 +126,7 @@ class SchemaVersion(BaseModel):
     file_id: str
     version: int = Field(ge=1)
     status: SchemaStatus
+    #: `.schema_definition`, for the same reason as `DetectedTable`'s.
     schema_definition: Schema = Field(alias="schema", serialization_alias="schema")
     source: str
     created_at: datetime | None = None

@@ -75,7 +75,7 @@ def use_worker(name: str):
 
 
 def client() -> GeminiClient:
-    return GeminiClient(os.environ["ZAMP_LLM_API_KEY"], os.getenv("ZAMP_LLM_MODEL") or "gemini-3.6-flash")
+    return GeminiClient(os.environ["ZAMP_LLM_API_KEY"], os.getenv("ZAMP_LLM_MODEL") or "gemini-3.8-flash")
 
 
 def main() -> None:

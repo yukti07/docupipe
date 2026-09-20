@@ -55,6 +55,7 @@ class SchemaSettings(BaseSettings):
     #: Gemini caps a whole request at 20MB and base64 inflates bytes by a third,
     #: so the raw image has to stay under 15MB with room left for the prompt.
     max_image_bytes: int = 14_000_000
+    max_pdf_bytes: int = 14_000_000
     #: Relative to the working directory, which is /app in both images.
     prompts_dir: str = "prompts"
 

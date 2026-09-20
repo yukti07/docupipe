@@ -1,6 +1,6 @@
 # Zamp structured-data POC
 
-Two independently deployable FastAPI workers implement the P0 workflow: schema detection and schema-approved data processing. CSV, JSON, XLSX and images (PNG, JPEG, WebP, BMP, TIFF, HEIC/HEIF) are supported end to end. An image goes to Gemini twice: once to infer the structure it represents rather than transcribing it, and once more against the approved schema to read the values out. See [docs/data-format-workflow.md](docs/data-format-workflow.md). The workers accept authenticated Pub/Sub push envelopes on `POST /` and expose `GET /health`.
+Two independently deployable FastAPI workers implement the P0 workflow: schema detection and schema-approved data processing. CSV, JSON, XLSX, PDFs and images (PNG, JPEG, WebP, BMP, TIFF, HEIC/HEIF) are supported end to end. PDFs and images require Gemini: once to infer the structure, and once more against the approved database schema to read the values out. See [docs/data-format-workflow.md](docs/data-format-workflow.md) and [PDF conversion and live testing](docs/pdf-conversion.md). The workers accept authenticated Pub/Sub push envelopes on `POST /` and expose `GET /health`.
 
 ## Architecture
 

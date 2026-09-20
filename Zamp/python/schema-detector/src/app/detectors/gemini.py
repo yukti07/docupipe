@@ -579,6 +579,8 @@ class GeminiSchemaDetector(SchemaDetector):
     def _build_parts(self, context: SchemaDetectionContext) -> list[dict[str, Any]]:
         path = Path(context.local_path)
         mime_type = context.source_file.mime_type.split(";", 1)[0].strip().lower()
+        if mime_type in ("", "application/octet-stream") and context.source_file.filename.lower().endswith(".pdf"):
+            mime_type = "application/pdf"
         if mime_type in NATIVE_MIME_TYPES:
             blob = path.read_bytes()
             if len(blob) > self.max_inline_bytes:

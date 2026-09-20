@@ -10,6 +10,7 @@ this table drift; one cannot.
 from __future__ import annotations
 
 EXTENSION_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
     ".csv": "text/csv",
     ".json": "application/json",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

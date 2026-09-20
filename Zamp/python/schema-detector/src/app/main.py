@@ -58,12 +58,12 @@ def get_pipeline() -> SchemaPipeline:
         }
         fallback = None
         if settings.llm.enabled and settings.llm.provider == "gemini" and settings.llm.api_key:
-            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.6-flash",
+            client = GeminiClient(settings.llm.api_key, settings.llm.model or "gemini-3.8-flash",
                                   temperature=settings.llm.temperature,
                                   max_output_tokens=settings.llm.max_output_tokens,
                                   max_retries=settings.llm.max_retries,
                                   timeout_seconds=settings.llm.timeout_seconds)
-            fallback = GeminiSchemaDetector(client, settings.schema.max_sample_bytes)
+            fallback = GeminiSchemaDetector(client, settings.schema.max_sample_bytes, settings.schema.max_pdf_bytes)
             # One instance for every image type. A per-MIME branch here would be
             # the same detector written out seven times.
             image = GeminiImageSchemaDetector(client, PromptRepository(settings.schema.prompts_dir),
