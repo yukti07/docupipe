@@ -176,7 +176,7 @@ export function SchemaGroupCard({
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12px] tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Plus aria-hidden className="size-3.5 shrink-0" />
-                and {formatCount(rest)} more
+                {formatCount(rest)} more
               </button>
             </li>
           )}

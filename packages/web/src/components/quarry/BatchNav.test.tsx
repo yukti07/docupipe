@@ -43,14 +43,10 @@ describe("BatchNav", () => {
   })
 
   it("never links Convert, because there is no screen behind it", () => {
-    const { rerender, container } = render(
+    const { container } = render(
       <BatchNav requestId={REQUEST} current="files" done={settled} phase="prepare" />,
     )
     expect(screen.queryByRole("link", { name: "Convert" })).not.toBeInTheDocument()
-    expect(stepState(container, "convert")).toBe("locked")
-
-    rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />)
-    expect(screen.queryByRole("link", { name: "Converted" })).not.toBeInTheDocument()
     expect(stepState(container, "convert")).toBe("locked")
   })
 
@@ -62,9 +58,17 @@ describe("BatchNav", () => {
 
     rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converting" />)
     expect(screen.getByText("Converting")).toBeVisible()
+  })
 
-    rerender(<BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />)
-    expect(screen.getByText("Converted")).toBeVisible()
+  // Once the results are there the gate is behind everything and names nothing
+  // the Results step does not already say.
+  it("drops the gate entirely once the batch has converted", () => {
+    const { container } = render(
+      <BatchNav requestId={REQUEST} current="results" done={settled} phase="converted" />,
+    )
+    expect(container.querySelector('[data-step="convert"]')).toBeNull()
+    expect(screen.queryByText("Converted")).not.toBeInTheDocument()
+    expect(screen.getByText("Results")).toBeVisible()
   })
 
   it("carries no step numbers at all", () => {

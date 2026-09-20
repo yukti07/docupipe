@@ -46,7 +46,7 @@ const entry = (
   },
 })
 
-function mockBackend(entries: SchemaEntry[]) {
+function mockBackend(entries: SchemaEntry[], { pending = 0 } = {}) {
   const saved: { schemaId: string; fields: SchemaField[] }[][] = []
   server.use(
     http.post("/api/register", () => HttpResponse.json({ status: "ok" })),
@@ -54,7 +54,7 @@ function mockBackend(entries: SchemaEntry[]) {
       HttpResponse.json({
         userId: "usr_1",
         requestId: REQUEST,
-        pending: 0,
+        pending,
         convertAvailable: true,
         convertBlockedReason: null,
         files: entries,
@@ -115,7 +115,7 @@ const cards = () =>
     .map((button) => button.closest("section")!)
 
 describe("Review schemas", () => {
-  it("stands a skeleton in the screen's place rather than counting to zero", async () => {
+  it("says what it is doing rather than counting to zero", async () => {
     server.use(
       http.post("/api/register", () => HttpResponse.json({ status: "ok" })),
       http.post("/api/polling/schema", async () => {
@@ -125,13 +125,49 @@ describe("Review schemas", () => {
     )
     await renderReview()
 
-    expect(
-      await screen.findByRole("status", { name: "Loading the schemas in this batch" }),
-    ).toBeVisible()
+    expect(await screen.findByText("Reading your schemas")).toBeVisible()
     // Not "0 schemas to review", and not an empty state either — neither of
     // those is true yet, and both would be replaced a moment later.
     expect(screen.queryByText(/schemas? to review/)).not.toBeInTheDocument()
     expect(screen.queryByText("No schema came back")).not.toBeInTheDocument()
+  })
+
+  // A link to a batch this browser never held has no names to put on cards,
+  // only the server's count — and a count is not worth two hundred skeletons.
+  it("stands a few cards in for however many files it cannot name", async () => {
+    mockBackend([], { pending: 200 })
+    await renderReview()
+
+    expect(await screen.findByText("and 197 more files being read")).toBeVisible()
+    expect(screen.getAllByText("Reading")).toHaveLength(3)
+  })
+
+  // The screen opens on what it has. Six files with two shapes back is two
+  // cards and four names, not a full-page skeleton until the sixth lands.
+  it("shows the shapes that are back beside a card for each file still reading", async () => {
+    localStorage.setItem(
+      `quarry.batch.${REQUEST}.files`,
+      JSON.stringify(
+        ["invoice-101.pdf", "invoice-102.pdf", "scan-0091.pdf"].map((fileName, i) => ({
+          fileId: `file_${i + 1}`,
+          fileName,
+          fileLocation: fileName,
+          size: 2048,
+          filePath: "https://storage.example.test/0",
+          expiresAt: "2026-09-14T11:05:00Z",
+        })),
+      ),
+    )
+    mockBackend([entry(1, INVOICE)], { pending: 2 })
+    await renderReview()
+
+    // The one that is back is a real card, with its fields on it.
+    expect(await screen.findByText("1 schema to review")).toBeVisible()
+    expect(cards()).toHaveLength(1)
+    expect(within(cards()[0]).getByText(/invoice_number/)).toBeVisible()
+    // The two that are not are named, and say so.
+    expect(screen.getAllByText("Reading")).toHaveLength(2)
+    expect(screen.getByText("scan-0091.pdf")).toBeVisible()
   })
 
   it("shows one card per schema, not one per file", async () => {
@@ -155,7 +191,7 @@ describe("Review schemas", () => {
 
     expect(screen.getByText("invoice-101.pdf")).toBeVisible()
     expect(screen.getByText("invoice-102.pdf")).toBeVisible()
-    expect(screen.getByText("and 1 more")).toBeVisible()
+    expect(screen.getByText("1 more")).toBeVisible()
   })
 
   it("opens the rest of the files from the count that stood for them", async () => {
@@ -165,13 +201,13 @@ describe("Review schemas", () => {
 
     expect(screen.queryByText("invoice-103.pdf")).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "and 2 more" }))
+    await user.click(screen.getByRole("button", { name: "2 more" }))
 
     // Every file, and each one reachable — the count used to be a dead label,
     // so the only way to a named file's table was its own row on Files.
     expect(screen.getByText("invoice-103.pdf")).toBeVisible()
     expect(screen.getByText("invoice-104.pdf")).toBeVisible()
-    expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^\d+ more$/)).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Edit the schema for invoice-104.pdf" }),
     ).toBeVisible()
@@ -299,12 +335,34 @@ describe("the schemas a converted batch was read against", () => {
     expect(screen.queryByRole("button", { name: /^Convert/ })).not.toBeInTheDocument()
   })
 
+  // Every file failed detection, so there is nothing to review and nothing
+  // still on its way. The heading used to say "Reading your schemas" over a
+  // card saying nothing came back, on a batch that had already converted.
+  it("stops saying it is reading once the reading is over", async () => {
+    mockBackend([
+      {
+        fileId: "file_1",
+        fileName: "invoice-101.pdf",
+        filePath: `requests/${REQUEST}/input/invoice-101.pdf`,
+        schemaId: null,
+        status: "failed",
+        schema: null,
+        failure: { class: "schema_inference_failed" },
+      },
+    ])
+    await renderReview("done")
+
+    expect(await screen.findByText("No schema came back")).toBeVisible()
+    expect(screen.getByText("Nothing to review")).toBeVisible()
+    expect(screen.queryByText("Reading your schemas")).not.toBeInTheDocument()
+  })
+
   it("offers the way back to the results instead", async () => {
     mockBackend([entry(1, INVOICE)])
     await renderReview("done")
     await screen.findByText("1 schema to review")
 
-    expect(screen.getByRole("link", { name: "Back to results" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Go to results" })).toHaveAttribute(
       "href",
       `/request/${REQUEST}`,
     )

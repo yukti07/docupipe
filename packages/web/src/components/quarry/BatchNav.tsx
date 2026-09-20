@@ -49,11 +49,15 @@ export function BatchNav({ requestId, current, done, phase, tail }: BatchNavProp
   // lost to anyone reading the bar aloud.
   const labelClass = tail ? "sr-only lg:not-sr-only" : undefined
   const converting = phase === "converting"
+  // Convert is the gate, and a gate is only worth naming while it is still
+  // ahead of you or being crossed. Once the batch has results it is a padlock
+  // between two steps that says nothing the Results step does not.
+  const steps = phase === "converted" ? STEPS.filter((s) => s.id !== "convert") : STEPS
 
   return (
     <nav aria-label="Batch" className="min-w-0">
       <ol className="flex min-w-0 items-center gap-1">
-        {STEPS.map(({ id, path }, index) => {
+        {steps.map(({ id, path }, index) => {
           const state = stateOf(id, { current, done, phase })
           // A table and the merge screen both live *inside* Results, so the
           // step stays lit while you are on one — and stays a link, because it

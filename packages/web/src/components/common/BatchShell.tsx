@@ -116,7 +116,10 @@ export function BatchShell({
             style={{ "--panel-width": `${panelWidth}px` } as CSSProperties}
             className={cn(
               "absolute inset-y-0 right-0 z-40 flex w-full max-w-[440px] flex-col overflow-auto",
-              "border-l border-border-subtle bg-card shadow-2xl",
+              // Cast left only. A shadow with as much blur as spread has no
+              // vertical reach, so the footer directly below stays clean.
+              "border-l border-border-subtle bg-card",
+              "shadow-[-10px_0_26px_-14px_rgba(20,25,40,0.28)]",
               "motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:duration-200",
               "lg:w-[var(--panel-width)] lg:max-w-none",
             )}

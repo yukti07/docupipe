@@ -11,9 +11,9 @@ import { GatedButton } from "@/components/common/GatedButton"
 import { railPhase } from "@/components/quarry/BatchNav"
 import { ConnectionStatus } from "@/components/quarry/ConnectionStatus"
 import { FailureMessage } from "@/components/quarry/FailureMessage"
+import { PendingSchemaCard } from "@/components/quarry/PendingSchemaCard"
 import { SchemaEditor } from "@/components/quarry/SchemaEditor"
 import { SchemaGroupCard } from "@/components/quarry/SchemaGroupCard"
-import { ReviewSchemasSkeleton } from "@/components/quarry/ReviewSchemasSkeleton"
 import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
@@ -23,17 +23,26 @@ import { ensureSession } from "@/lib/session"
 import { useBatch } from "@/state/batch"
 import { useWorkspace } from "@/state/workspace"
 
+/** How many nameless "still reading" cards the screen will ever stack up. */
+const PENDING_CARDS = 3
+
 /**
- * Review schemas — the same job as a row's eye, over the whole batch at once.
+ * Review schemas — every shape in the batch, as one decision per shape.
  *
- * The eye opens one *file*. This opens one *schema*: every table that came back
- * with the same fields and types is a single card, and editing that card edits
- * the lot. A batch of forty invoices that all read the same way is therefore one
- * card and one decision, which is the only version of this screen that scales.
+ * One card is one *schema*: every table that came back with the same fields and
+ * types, edited together. A batch of forty invoices that all read the same way
+ * is therefore one card and one decision, which is the only version of this
+ * screen that scales.
  *
- * Grouping is on the shape each table has *now*, so a table already edited from
- * its own file's row has left the group it started in and holds a card of its
- * own — and "update matching tables" here means exactly what it says.
+ * It opens before the shapes are all in. Whatever has come back is grouped and
+ * shown; every file still being read holds a card of its own with its name on
+ * it, and is replaced by a real card — or by a line in the panel of files that
+ * will not convert — the moment the server answers for it. Nobody waits on the
+ * slowest file in the drop to start reviewing the fastest.
+ *
+ * Grouping is on the shape each table has *now*, so a table already edited has
+ * left the group it started in and holds a card of its own — and "update
+ * matching tables" here means exactly what it says.
  */
 export default function ReviewSchemasPage({ params }: PageProps<"/request/[requestId]/schemas">) {
   const { requestId } = use(params)
@@ -92,14 +101,56 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
 
   const tableCount = batch.schemas.length
   const fileCount = new Set(batch.schemas.map((s) => s.fileId)).size
-  // Nothing to show and something still coming: before the first poll answers,
-  // or while it says more files are being read. A failure ends the wait too —
-  // it has an answer of its own, and it belongs on the screen rather than
-  // under a skeleton that would now never resolve.
-  const waiting =
+
+  // Every file the server has now answered for, one way or another: with a
+  // shape, with a reason it has none, or with a table that held nothing.
+  const settled = useMemo(
+    () =>
+      new Set([
+        ...batch.schemas.map((s) => s.fileId),
+        ...batch.wontConvert.map((w) => w.fileId),
+        ...batch.emptyTables.map((t) => t.fileId),
+      ]),
+    [batch.schemas, batch.wontConvert, batch.emptyTables],
+  )
+  // The rest, by name, in the order they were dropped. A converted batch has
+  // nothing outstanding by definition, and a poll that has given up is said on
+  // the card rather than by hiding it. A file that never landed is left out
+  // alongside a rejected one: there is nothing on the server to answer for it,
+  // so a card for it would read "Reading" forever.
+  const awaiting = useMemo(
+    () =>
+      frozen
+        ? []
+        : batch.files.filter(
+            (f) =>
+              f.stage !== "rejected" &&
+              f.stage !== "failed" &&
+              !(f.fileId && settled.has(f.fileId)),
+          ),
+    [batch.files, frozen, settled],
+  )
+  // A batch opened in a browser that never held it has no names to put on the
+  // cards, only the server's count of what it is still reading.
+  const pending = awaiting.length === 0 && !frozen ? batch.pending : 0
+  // Only ever a few of them. Without names these cards are the same card
+  // repeated, and a shared link to a batch of two hundred should not open on
+  // two hundred pulsing skeletons; whatever is over the few is counted in a
+  // line beneath them instead.
+  const unnamed = Math.min(pending, PENDING_CARDS)
+  // Nothing at all yet — not one shape, not one name, not one failure. It lasts
+  // as long as the first poll and the read of this browser's own file list.
+  const blank =
     tableCount === 0 &&
+    awaiting.length === 0 &&
+    unnamed === 0 &&
+    batch.wontConvert.length === 0 &&
     !batch.schemaPollFailure &&
-    (!batch.schemasAnswered || batch.pending > 0)
+    !batch.schemasAnswered
+  // Whether anything is still on its way. The heading and the empty state read
+  // off the same answer, so the screen cannot say it is reading above a card
+  // that says nothing came back.
+  const reading = awaiting.length > 0 || unnamed > 0 || blank
 
   async function convert() {
     setConverting(true)
@@ -133,7 +184,7 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
       closePanelOnPressOutside={draftOn === null}
       onClosePanel={close}
       panel={
-        !waiting && openSchema && openGroup ? (
+        openSchema && openGroup ? (
           <SchemaEditor
             schema={openSchema}
             fileName={openSchema.fileName}
@@ -169,7 +220,7 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
           actions={
             frozen ? (
               <Button asChild className="h-10 rounded-[10px] text-[13px]">
-                <Link href={`/request/${requestId}`}>Back to results</Link>
+                <Link href={`/request/${requestId}`}>Go to results</Link>
               </Button>
             ) : (
               <GatedButton
@@ -192,67 +243,92 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
         />
       }
     >
-      {waiting ? (
-        // The same skeleton the route showed on the way in, so arriving here
-        // changes nothing on screen until there is something true to put on it.
-        <ReviewSchemasSkeleton />
-      ) : (
-        <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-6 py-6">
-          <div className="min-w-0">
-            <h1 className="text-[19px] font-semibold tracking-[-0.015em]">
-              {formatCount(groups.length)} {groups.length === 1 ? "schema" : "schemas"} to review
-            </h1>
-            <p className="mt-1 text-[13px] tabular-nums text-subtle-foreground">
-              {frozen
-                ? "This batch has been converted. These are the shapes it was read against."
-                : "Editing one card edits every table that came back with the same fields."}
+      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-6 py-6">
+        <div className="min-w-0">
+          {/* Counting nothing is not a heading. Until the first shape is back,
+              the screen says what it is doing instead — and once the reading is
+              over with nothing to show for it, it says that rather than going
+              on claiming to read. */}
+          <h1 className="text-[19px] font-semibold tracking-[-0.015em]">
+            {groups.length > 0
+              ? `${formatCount(groups.length)} ${
+                  groups.length === 1 ? "schema" : "schemas"
+                } to review`
+              : reading
+                ? "Reading your schemas"
+                : "Nothing to review"}
+          </h1>
+          {frozen && (
+            <p className="mt-1 text-[13px] text-subtle-foreground">
+              This batch has been converted. These are the shapes it was read against.
             </p>
-          </div>
-
-          {batch.schemaPollFailure && <ConnectionStatus failure={batch.schemaPollFailure} />}
-
-          {groups.length === 0 && (
-            <EmptyState
-              title="No schema came back"
-              body="Nothing in this batch settled into a table, so there is nothing to review here yet."
-              action={
-                <Button asChild variant="outline" className="h-9 rounded-[10px] bg-card">
-                  <Link href={`/request/${requestId}`}>Back to files</Link>
-                </Button>
-              }
-            />
           )}
+        </div>
 
-          {groups.length > 0 && (
-            <div className="flex flex-col gap-2.5">
-              {groups.map((group, index) => (
-                <SchemaGroupCard
-                  key={group.shapeHash}
-                  group={group}
-                  defaultOpen={index === 0}
-                  selected={group.schemas.some((s) => s.schemaId === openSchemaId)}
-                  unsaved={group.schemas.some((s) => s.schemaId === draftOn)}
-                  onOpen={open}
-                />
-              ))}
-            </div>
-          )}
+        {batch.schemaPollFailure && <ConnectionStatus failure={batch.schemaPollFailure} />}
 
-          <WontConvertPanel
-            entries={batch.wontConvert}
-            onDiscard={
-              frozen
-                ? undefined
-                : async (fileIds) => {
-                    // Emptying the batch from here leaves nothing to review, so
-                    // the screen goes back to the files rather than to an empty
-                    // page of its own.
-                    if ((await batch.discardFiles(fileIds)) === 0) router.push("/")
-                  }
+        {/* Only once nothing is outstanding. A screen with six files still
+            being read has not failed to produce a schema; it is mid-sentence. */}
+        {groups.length === 0 && !reading && (
+          <EmptyState
+            title="No schema came back"
+            body="Nothing in this batch settled into a table, so there is nothing to review here yet."
+            action={
+              <Button asChild variant="outline" className="h-9 rounded-[10px] bg-card">
+                <Link href={`/request/${requestId}`}>Back to files</Link>
+              </Button>
             }
           />
+        )}
+
+        <div className="flex flex-col gap-2.5">
+          {groups.map((group, index) => (
+            <SchemaGroupCard
+              key={group.shapeHash}
+              group={group}
+              defaultOpen={index === 0}
+              selected={group.schemas.some((s) => s.schemaId === openSchemaId)}
+              unsaved={group.schemas.some((s) => s.schemaId === draftOn)}
+              onOpen={open}
+            />
+          ))}
+          {/* Under the real cards, so a shape landing never pushes one that is
+              already being read further down the screen. */}
+          {awaiting.map((file, index) => (
+            <PendingSchemaCard
+              key={file.localId}
+              fileName={file.name}
+              stalled={batch.schemasStalled}
+              index={index}
+            />
+          ))}
+          {Array.from({ length: blank ? PENDING_CARDS : unnamed }, (_, index) => (
+            <PendingSchemaCard key={`unnamed-${index}`} index={index} />
+          ))}
+          {/* The ones the cards stand for. A count is all there is to say about
+              a file this browser has no name for. */}
+          {pending > unnamed && (
+            <p className="px-1 text-[12.5px] tabular-nums text-subtle-foreground">
+              and {formatCount(pending - unnamed)} more{" "}
+              {pending - unnamed === 1 ? "file" : "files"} being read
+            </p>
+          )}
         </div>
-      )}
+
+        <WontConvertPanel
+          entries={batch.wontConvert}
+          onDiscard={
+            frozen
+              ? undefined
+              : async (fileIds) => {
+                  // Emptying the batch from here leaves nothing to review, so
+                  // the screen goes back to the files rather than to an empty
+                  // page of its own.
+                  if ((await batch.discardFiles(fileIds)) === 0) router.push("/")
+                }
+          }
+        />
+      </div>
     </BatchShell>
   )
 }
