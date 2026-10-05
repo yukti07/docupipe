@@ -88,11 +88,16 @@ describe("S01 workspace", () => {
           requestId: "req_a",
           status: "COMPLETED",
           pausedUntil: null,
-          counts: { queued: 0, extracting: 0, filling: 0, done: 5, failed: 1 },
+          counts: { queued: 0, extracting: 0, filling: 0, done: 3, failed: 1 },
           rowsSoFar: 140,
           estimatedSecondsRemaining: null,
           allowance: { used: 0, limit: 5000, resetsAt: "2026-09-15T00:00:00Z" },
-          files: [],
+          files: [
+            { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_0", stage: "DONE", rowCount: 5 },
+            { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_1", stage: "DONE", rowCount: 7 },
+            { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_2", stage: "DONE", rowCount: 2 },
+            { fileId: "f_2", fileName: "scan.pdf", schemaId: "sch_3", stage: "FAILED" },
+          ],
         })
       }),
     )
@@ -104,7 +109,7 @@ describe("S01 workspace", () => {
 
     expect(await screen.findByText("Done")).toBeVisible()
     expect(screen.getByText("1 failed")).toBeVisible()
-    expect(screen.getByText("6 files · 5 tables · 140 rows")).toBeVisible()
+    expect(screen.getByText("6 files · 3 tables · 140 rows")).toBeVisible()
     expect(screen.queryByText("Converting")).not.toBeInTheDocument()
     // Once, on the way in. The workspace is a list of things already done, not
     // a screen that re-asks about six batches every few seconds.

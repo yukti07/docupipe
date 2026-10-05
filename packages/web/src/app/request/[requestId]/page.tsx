@@ -33,7 +33,8 @@ import {
 } from "@/lib/schema"
 import { ensureSession } from "@/lib/session"
 import { useAsync } from "@/lib/useAsync"
-import { useBatch, type BatchFile } from "@/state/batch"
+import { type BatchFile } from "@/state/batch"
+import { useBatchContext } from "@/state/batchContext"
 import { forgetFiles, readRememberedFiles, readUnreadable } from "@/state/batchFiles"
 import {
   batchPatch,
@@ -99,7 +100,6 @@ export default function BatchPage({ params, searchParams }: PageProps<"/request/
   ) : (
     <Prepare
       requestId={requestId}
-      userId={userId}
       // Everything the shape of this batch is made of is fixed the moment the
       // work starts. The screen still opens; nothing on it can be changed.
       frozen={converting}
@@ -117,19 +117,17 @@ type PhaseWriter = ReturnType<typeof useWorkspace>["updateBatch"]
 
 function Prepare({
   requestId,
-  userId,
   frozen,
   phase,
   onPhase,
 }: {
   requestId: string
-  userId: string | null
   /** Reached from the rail after the gate: a record, not a workspace. */
   frozen?: boolean
   phase: BatchPhase
   onPhase: PhaseWriter
 }) {
-  const batch = useBatch(requestId, userId)
+  const batch = useBatchContext()
   const router = useRouter()
   const { removeBatch } = useWorkspace()
   const [converting, setConverting] = useState(false)
@@ -194,7 +192,12 @@ function Prepare({
   // settled just as surely as one that did.
   const prepareDone = {
     files: progress.total > 0 && progress.uploaded === progress.total,
-    schemas: allShapesSettled(batch.schemas, batch.wontConvert, progress.total),
+    schemas: allShapesSettled(
+      batch.schemas,
+      batch.wontConvert,
+      batch.emptyTables,
+      progress.total,
+    ),
   }
 
   return (
@@ -384,10 +387,11 @@ function Converting({
   //
   // Two sources, because neither is enough on its own. What this browser wrote
   // before the gate covers the files that had already failed inspection; it
-  // cannot cover the ones that fail after Convert is pressed, because the
-  // schema poll that records them stops the moment this screen replaces
-  // Prepare — and converting before every shape is back is exactly the flow
-  // these rows exist for. So the shapes are asked for once more here.
+  // cannot cover the ones that fail after Convert is pressed, and converting
+  // before every shape is back is exactly the flow these rows exist for. The
+  // request's batch state is already polling for shapes, so this one-shot is
+  // redundant; it stays as a direct first answer rather than waiting on that
+  // loop's cadence, and is marked for removal.
   const noted = useMemo(() => readUnreadable(requestId), [requestId])
   const { data: shapes } = useAsync(
     userId ? `${userId}:${requestId}:shapes` : "",

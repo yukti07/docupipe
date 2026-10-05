@@ -62,6 +62,13 @@ export type SchemaState = {
   schemaId: string
   tableLabel: string
   version: number
+  /**
+   * The server's hash of the fields the DOCUMENT came with — never recomputed
+   * here. `updateSchemas` keys apply-to-all on it, and it is the only thing
+   * that survives a reload: `original` below is re-seeded from whatever the
+   * server currently holds, so after an edit it is no longer original at all.
+   */
+  shapeHash: string
   /** What the document said, so an edited field can say what it used to be. */
   original: SchemaField[]
   current: SchemaField[]
@@ -186,7 +193,7 @@ export type SchemaStatus = "generated" | "modified" | "unsaved"
 export const schemaStatus = (schemas: SchemaState[], unsaved = false): SchemaStatus =>
   unsaved ? "unsaved" : schemas.some(isEdited) ? "modified" : "generated"
 
-/** Tables that share one shape, held together so they can be edited as one. */
+/** Tables that share one shape, held together so they can be edited as one. `shapeHash` is that CURRENT shape. */
 export type SchemaGroup = { shapeHash: string; schemas: SchemaState[] }
 
 /**
@@ -226,11 +233,17 @@ export type UpdateTarget = {
 }
 
 /**
- * The tables this one can be pushed onto: the ones carrying exactly its field
- * names, and the ones short of exactly one of them.
+ * The tables this one can be pushed onto: the ones the server would accept in
+ * the same write, minus the ones this shape would take a field away from.
  *
- * Matching is on names alone. A type that disagrees is the whole reason the
- * push exists, so it cannot also be what rules a table out.
+ * The first rule is the server's, not ours. `updateSchemas` requires every
+ * entry in a call to share the edited schema's ORIGINAL shape hash, and
+ * rejects the whole write otherwise — including the edit to the table the user
+ * is actually on. Matching on field names alone offered targets that could
+ * never be saved, which is a button that only ever loses work.
+ *
+ * Since both sides share an original shape, a gap in `added` can only be a
+ * field this edit added by hand.
  */
 export function updateTargetsFor(all: SchemaState[], source: SchemaState): UpdateTarget[] {
   const keys = source.current.map((f) => f.key)
@@ -238,6 +251,7 @@ export function updateTargetsFor(all: SchemaState[], source: SchemaState): Updat
 
   return all
     .filter((schema) => schema.schemaId !== source.schemaId)
+    .filter((schema) => schema.shapeHash === source.shapeHash)
     .flatMap<UpdateTarget>((schema) => {
       const theirs = new Set(schema.current.map((f) => f.key))
       if ([...theirs].some((key) => !wanted.has(key))) return []
@@ -251,24 +265,45 @@ export function updateTargetsFor(all: SchemaState[], source: SchemaState): Updat
 }
 
 /**
+ * Every file the server has answered for, one way or another: with a shape,
+ * with a reason it has none, or with a table that held nothing.
+ *
+ * The one definition, because there used to be three and two of them left
+ * `emptyTables` out. That gap is unreachable today — when no sheet in a file
+ * produces a shape the worker fails the FILE, which arrives here as a
+ * file-level failure and lands in `wontConvert` (see
+ * `schema_pipeline._detect`, and the regression test beside `pollSchemas`).
+ * Spelling the rule once means a change to that invariant breaks a test
+ * rather than a screen that reads "Detecting" for the rest of a run.
+ */
+export function settledFileIds(
+  schemas: { fileId: string }[],
+  wontConvert: { fileId: string }[],
+  emptyTables: { fileId: string }[],
+): Set<string> {
+  return new Set([
+    ...schemas.map((s) => s.fileId),
+    ...wontConvert.map((w) => w.fileId),
+    ...emptyTables.map((t) => t.fileId),
+  ])
+}
+
+/**
  * Whether every accepted file has settled a shape — one it gave up, or the
  * reason it has none. Both count: a file that could not be read has finished
  * being read just as surely as one that was.
  *
- * Counted over the files themselves rather than by summing the two lists, so a
+ * Counted over the files themselves rather than by summing the lists, so a
  * file that gave up three tables still counts once.
  */
 export function allShapesSettled(
   schemas: { fileId: string }[],
   wontConvert: { fileId: string }[],
+  emptyTables: { fileId: string }[],
   acceptedCount: number,
 ): boolean {
   if (acceptedCount === 0) return false
-  const settled = new Set([
-    ...schemas.map((s) => s.fileId),
-    ...wontConvert.map((w) => w.fileId),
-  ])
-  return settled.size >= acceptedCount
+  return settledFileIds(schemas, wontConvert, emptyTables).size >= acceptedCount
 }
 
 /** A file that gave up no table at all. */

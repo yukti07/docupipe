@@ -21,6 +21,7 @@ export function BatchCard({ batch, className }: { batch: WorkspaceBatch; classNa
   // "Nothing usable" already says every one of them failed; the count beneath
   // it would be the same fact with a number on it.
   const notes = phase !== "failed" && failed > 0
+  const contentsLine = contents(batch)
 
   return (
     <Link
@@ -34,9 +35,11 @@ export function BatchCard({ batch, className }: { batch: WorkspaceBatch; classNa
         <p className="truncate text-[14px] font-medium tabular-nums">
           {formatStamp(batch.createdAt)}
         </p>
-        <p className="mt-0.5 truncate text-[12.5px] tabular-nums text-muted-foreground">
-          {contents(batch)}
-        </p>
+        {contentsLine && (
+          <p className="mt-0.5 truncate text-[12.5px] tabular-nums text-muted-foreground">
+            {contentsLine}
+          </p>
+        )}
       </div>
 
       {/* The status, and nothing beside it. The counts that used to sit under
@@ -79,7 +82,12 @@ export function BatchCard({ batch, className }: { batch: WorkspaceBatch; classNa
  */
 function contents(batch: WorkspaceBatch): string {
   const { tables = 0, rows = 0 } = batch.summary
-  const parts = [`${formatCount(batch.fileCount)} ${batch.fileCount === 1 ? "file" : "files"}`]
+  const parts: string[] = []
+  // A batch opened from a shared link was never dropped in this browser, so
+  // there is no file count to give — and nought is a claim rather than a gap.
+  if (batch.fileCount > 0) {
+    parts.push(`${formatCount(batch.fileCount)} ${batch.fileCount === 1 ? "file" : "files"}`)
+  }
   if (tables > 0) parts.push(`${formatCount(tables)} ${tables === 1 ? "table" : "tables"}`)
   if (rows > 0) parts.push(`${formatCount(rows)} ${rows === 1 ? "row" : "rows"}`)
   return parts.join(" · ")

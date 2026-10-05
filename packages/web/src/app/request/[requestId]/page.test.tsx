@@ -1,10 +1,12 @@
 import { http, HttpResponse } from "msw"
-import { Suspense } from "react"
+import { Suspense, useEffect, useState, type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, render, screen, waitFor, within } from "@/test/render"
 import { server } from "@/test/msw/server"
 import type { SchemaEntry } from "@/lib/api/types"
 import { stageFiles } from "@/lib/preflight"
+import { ensureSession } from "@/lib/session"
+import { BatchProvider } from "@/state/batchContext"
 import { stageForRequest } from "@/state/staged"
 import { WorkspaceProvider, type WorkspaceBatch } from "@/state/workspace"
 import BatchPage from "./page"
@@ -141,6 +143,19 @@ function mockBackend({
   return seen
 }
 
+/** Stands in for the request layout, which is where the batch state now lives. */
+function Scope({ children }: { children: ReactNode }) {
+  const [userId, setUserId] = useState<string | null>(null)
+  useEffect(() => {
+    void ensureSession().then(setUserId)
+  }, [])
+  return (
+    <BatchProvider requestId={REQUEST} userId={userId} pollSchemas>
+      {children}
+    </BatchProvider>
+  )
+}
+
 async function renderBatch(
   phase?: WorkspaceBatch["phase"],
   query: Record<string, string> = {},
@@ -169,9 +184,11 @@ async function renderBatch(
   await act(async () => {
     rendered = render(
       <WorkspaceProvider>
-        <Suspense fallback={<p>loading</p>}>
-          <BatchPage params={params} searchParams={searchParams} />
-        </Suspense>
+        <Scope>
+          <Suspense fallback={<p>loading</p>}>
+            <BatchPage params={params} searchParams={searchParams} />
+          </Suspense>
+        </Scope>
       </WorkspaceProvider>,
     )
   })

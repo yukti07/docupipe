@@ -121,11 +121,12 @@ export function batchPatch(
 ): Partial<Omit<WorkspaceBatch, "requestId">> {
   const toCheck = data.files.reduce((sum, file) => sum + (file.toCheckCount ?? 0), 0)
   return {
-    // Counted from the server's own list, so a batch this browser has just
-    // learned about gets a card that reads true. An empty list is not a count
-    // of nought — it is a batch whose shapes have not come back yet — so the
-    // number the card already has stands.
-    ...(data.files.length > 0 ? { fileCount: data.files.length } : {}),
+    // Deliberately no fileCount. `data.files` is one entry per TABLE, with
+    // merges collapsed into one — so writing its length here told a card for
+    // one three-sheet workbook that it held three files, and told a merged
+    // batch it had lost some. The file count is the drop's own, written once
+    // when the batch was made; a batch this browser learned about from a
+    // shared link has no honest file count and the card says nothing instead.
     phase:
       data.status === "PAUSED"
         ? "paused"

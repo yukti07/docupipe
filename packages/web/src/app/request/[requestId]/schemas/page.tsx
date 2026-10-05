@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { use, useEffect, useMemo, useState } from "react"
+import { use, useMemo, useState } from "react"
 import { BatchFooter } from "@/components/common/BatchFooter"
 import { BatchShell } from "@/components/common/BatchShell"
 import { EmptyState } from "@/components/common/EmptyState"
@@ -16,9 +16,14 @@ import { WontConvertPanel } from "@/components/quarry/WontConvertPanel"
 import { Button } from "@/components/ui/button"
 import type { Failure } from "@/lib/api/types"
 import { formatCount } from "@/lib/format"
-import { allShapesSettled, groupByCurrentShape, tableName, updateTargetsFor } from "@/lib/schema"
-import { ensureSession } from "@/lib/session"
-import { useBatch } from "@/state/batch"
+import {
+  allShapesSettled,
+  groupByCurrentShape,
+  settledFileIds,
+  tableName,
+  updateTargetsFor,
+} from "@/lib/schema"
+import { useBatchContext } from "@/state/batchContext"
 import { useWorkspace } from "@/state/workspace"
 
 /** How many nameless "still reading" cards the screen will ever stack up. */
@@ -44,10 +49,9 @@ const PENDING_CARDS = 3
  */
 export default function ReviewSchemasPage({ params }: PageProps<"/request/[requestId]/schemas">) {
   const { requestId } = use(params)
-  const [userId, setUserId] = useState<string | null>(null)
   const router = useRouter()
   const { batches, updateBatch } = useWorkspace()
-  const batch = useBatch(requestId, userId)
+  const batch = useBatchContext()
   const phase = railPhase(batches.find((b) => b.requestId === requestId)?.phase)
   // Reached from the rail after the gate. The shapes are what the batch was
   // converted against, so they are worth reading and cannot be changed.
@@ -62,10 +66,6 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
   const [draftOn, setDraftOn] = useState<string | null>(null)
   const [converting, setConverting] = useState(false)
   const [convertFailure, setConvertFailure] = useState<Failure | null>(null)
-
-  useEffect(() => {
-    void ensureSession().then(setUserId)
-  }, [])
 
   const groups = useMemo(() => groupByCurrentShape(batch.schemas), [batch.schemas])
 
@@ -94,7 +94,9 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
   const openGroup = groups.find((g) => g.schemas.some((s) => s.schemaId === openSchemaId)) ?? null
   const openSchema = openGroup?.schemas.find((s) => s.schemaId === openSchemaId) ?? null
   // Wider than the card: every table this schema fits, including the ones
-  // short of one of its fields, which no group would ever put beside it.
+  // short of one of its fields, which no group would ever put beside it. And
+  // narrower in one way the card is not: only tables that *started* from this
+  // shape, because the server refuses the write otherwise.
   const targets = openSchema ? updateTargetsFor(batch.schemas, openSchema) : []
   // The tables the panel could equally have opened on. It picked one of them
   // without being asked — the group's first — so the panel offers the rest.
@@ -106,15 +108,9 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
   const tableCount = batch.schemas.length
   const fileCount = new Set(batch.schemas.map((s) => s.fileId)).size
 
-  // Every file the server has now answered for, one way or another: with a
-  // shape, with a reason it has none, or with a table that held nothing.
+  // Every file the server has now answered for, one way or another.
   const settled = useMemo(
-    () =>
-      new Set([
-        ...batch.schemas.map((s) => s.fileId),
-        ...batch.wontConvert.map((w) => w.fileId),
-        ...batch.emptyTables.map((t) => t.fileId),
-      ]),
+    () => settledFileIds(batch.schemas, batch.wontConvert, batch.emptyTables),
     [batch.schemas, batch.wontConvert, batch.emptyTables],
   )
   // The rest, by name, in the order they were dropped. A converted batch has
@@ -175,7 +171,12 @@ export default function ReviewSchemasPage({ params }: PageProps<"/request/[reque
       current="schemas"
       done={{
         files: batch.acceptedCount > 0 && batch.uploadedCount === batch.acceptedCount,
-        schemas: allShapesSettled(batch.schemas, batch.wontConvert, batch.acceptedCount),
+        schemas: allShapesSettled(
+          batch.schemas,
+          batch.wontConvert,
+          batch.emptyTables,
+          batch.acceptedCount,
+        ),
       }}
       phase={phase}
       // The rail says "detecting" between Files and Schemas for exactly as long
