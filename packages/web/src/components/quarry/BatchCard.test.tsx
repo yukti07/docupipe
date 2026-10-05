@@ -38,6 +38,27 @@ describe("BatchCard", () => {
     expect(screen.getByText("41 files · 41 tables · 612 rows")).toBeVisible()
   })
 
+  it("says nothing about files for a batch it has no file count for", () => {
+    // A batch learned from a shared `?w=` link: this browser never saw the
+    // drop, so it has no file count. "0 files" would be a claim, not a gap.
+    render(
+      <BatchCard
+        batch={{ ...base, fileCount: 0, summary: { tables: 3, rows: 140 } }}
+      />,
+    )
+    expect(screen.getByText("3 tables · 140 rows")).toBeVisible()
+    expect(screen.queryByText(/0 files/)).not.toBeInTheDocument()
+  })
+
+  it("renders no summary line at all when it has nothing to count", () => {
+    // A shared link to a batch this browser never saw: no file count, and no
+    // tables yet. An empty line would leave the card short of its neighbours.
+    const { container } = render(
+      <BatchCard batch={{ ...base, fileCount: 0, phase: "converting", summary: {} }} />,
+    )
+    expect(container.querySelector("p:empty")).toBeNull()
+  })
+
   it("keeps the right-hand side to the status and nothing else", () => {
     render(
       <BatchCard
@@ -116,10 +137,9 @@ describe("BatchCard", () => {
 
   // The card says what the last poll said, and `useWorkspaceRefresh` is what
   // makes sure that was recent. Deriving "it must have finished by now" from
-  // the counts instead read them against `fileCount`, which the poll overwrites
-  // with the number of TABLES it knows about — so a batch with three of eight
-  // files detected and all three tables done settled itself as Done while five
-  // files were still being read.
+  // the counts instead read them against `fileCount` — which no longer moves
+  // at all, and never did mean what the name says here. The phase is the one
+  // thing that answers this.
   it("says what the batch's own phase says, and does not second-guess it", () => {
     render(
       <BatchCard

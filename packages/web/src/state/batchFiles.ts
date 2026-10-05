@@ -91,6 +91,33 @@ export function readUnreadable(requestId: string): string[] {
   }
 }
 
+/**
+ * Take specific files out of what this browser remembers.
+ *
+ * The counterpart to a discard. Without it the row comes back on the next
+ * load — the server has soft-deleted the file so no poll will ever mention it
+ * again, which leaves a row with no shape, no failure and no way to remove it,
+ * and an accepted-file count that can never settle.
+ *
+ * Both maps, because a discard is offered for exactly the files the unreadable
+ * set is made of.
+ */
+export function forgetFile(requestId: string, fileIds: string[]) {
+  if (fileIds.length === 0) return
+  const dropped = new Set(fileIds)
+  try {
+    const kept = readRememberedFiles(requestId).filter((file) => !dropped.has(file.fileId))
+    if (kept.length === 0) localStorage.removeItem(keyFor(requestId))
+    else localStorage.setItem(keyFor(requestId), JSON.stringify(kept))
+
+    const unreadable = readUnreadable(requestId).filter((id) => !dropped.has(id))
+    if (unreadable.length === 0) localStorage.removeItem(unreadableKeyFor(requestId))
+    else localStorage.setItem(unreadableKeyFor(requestId), JSON.stringify(unreadable))
+  } catch {
+    // Losing the prune costs a stale row after a refresh, not the discard.
+  }
+}
+
 export function forgetFiles(requestId: string) {
   try {
     localStorage.removeItem(keyFor(requestId))

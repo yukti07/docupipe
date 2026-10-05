@@ -13,8 +13,14 @@ import type {
 import { usePoll } from "@/lib/polling"
 import { stageFiles, type StagedFile } from "@/lib/preflight"
 import { uploadAll, type UploadTask } from "@/lib/upload"
-import { partitionFailures, type SchemaState, type TableFailure } from "@/lib/schema"
 import {
+  partitionFailures,
+  settledFileIds,
+  type SchemaState,
+  type TableFailure,
+} from "@/lib/schema"
+import {
+  forgetFile,
   readRememberedFiles,
   rememberFiles,
   rememberUnreadable,
@@ -107,6 +113,7 @@ function toSchemaState(entry: SchemaEntry): SchemaState | null {
     schemaId: entry.schemaId,
     tableLabel: entry.schema.tableLabel,
     version: entry.schema.version,
+    shapeHash: entry.schema.shapeHash,
     original: entry.schema.fields,
     current: entry.schema.fields,
   }
@@ -420,12 +427,8 @@ export function useBatch(
   // Every file that has landed, and every one that has settled a shape either
   // way. The poll stops when those two agree and nothing is still going up.
   const settledShapes = useMemo(
-    () =>
-      new Set([
-        ...state.schemas.map((s) => s.fileId),
-        ...state.wontConvert.map((w) => w.fileId),
-      ]),
-    [state.schemas, state.wontConvert],
+    () => settledFileIds(state.schemas, state.wontConvert, state.emptyTables),
+    [state.schemas, state.wontConvert, state.emptyTables],
   )
   const landed = useMemo(
     () => state.files.filter((f) => f.stage === "uploaded" && f.fileId).map((f) => f.fileId!),
@@ -545,6 +548,9 @@ export function useBatch(
       if (!userId || fileIds.length === 0) return state.files.length
       try {
         const response = await api.discardFiles(userId, requestId, fileIds)
+        // Only once the server has actually accepted the delete: what this
+        // browser remembers is a projection of what the server holds.
+        forgetFile(requestId, fileIds)
         dispatch({ type: "discarded-files", fileIds })
         return response.remaining
       } catch {

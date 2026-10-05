@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { forgetFiles, readRememberedFiles, rememberFiles } from "./batchFiles"
+import {
+  forgetFile,
+  forgetFiles,
+  readRememberedFiles,
+  readUnreadable,
+  rememberFiles,
+  rememberUnreadable,
+} from "./batchFiles"
 
 const file = (fileId: string, fileName: string) => ({
   fileId,
@@ -55,5 +62,42 @@ describe("remembered files", () => {
     rememberFiles("req_1", [file("file_1", "a.pdf")])
     forgetFiles("req_1")
     expect(readRememberedFiles("req_1")).toEqual([])
+  })
+})
+
+describe("forgetFile", () => {
+  const file = (fileId: string) => ({
+    fileId,
+    fileName: `${fileId}.pdf`,
+    fileLocation: `${fileId}.pdf`,
+    size: 10,
+    filePath: `p/${fileId}`,
+    expiresAt: "2099-01-01T00:00:00Z",
+  })
+
+  it("drops only the named files and leaves the rest", () => {
+    rememberFiles("req_1", [file("f_1"), file("f_2"), file("f_3")])
+    forgetFile("req_1", ["f_2"])
+    expect(readRememberedFiles("req_1").map((f) => f.fileId)).toEqual(["f_1", "f_3"])
+  })
+
+  it("drops the file from the unreadable set too", () => {
+    // A discard is offered for exactly the files that landed here, so leaving
+    // the id behind would keep a deleted file influencing the results screen.
+    rememberFiles("req_1", [file("f_1"), file("f_2"), file("f_3")])
+    rememberUnreadable("req_1", ["f_2", "f_3"])
+    forgetFile("req_1", ["f_2"])
+    expect(readUnreadable("req_1")).toEqual(["f_3"])
+  })
+
+  it("clears the map rather than leaving a husk when the last file goes", () => {
+    rememberFiles("req_1", [file("f_1")])
+    forgetFile("req_1", ["f_1"])
+    expect(localStorage.getItem("quarry.batch.req_1.files")).toBeNull()
+    expect(readRememberedFiles("req_1")).toEqual([])
+  })
+
+  it("does nothing for a request it holds nothing for", () => {
+    expect(() => forgetFile("req_unknown", ["f_1"])).not.toThrow()
   })
 })

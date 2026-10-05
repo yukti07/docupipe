@@ -10,6 +10,7 @@ import {
   fieldHeader,
   groupByCurrentShape,
   isEdited,
+  settledFileIds,
   shapeHash,
   updateTargetsFor,
   validateNewField,
@@ -25,13 +26,21 @@ const f = (key: string, type: SchemaField["type"]): SchemaField => ({
 
 const INVOICE = [f("invoice_number", "text"), f("invoice_date", "date"), f("total", "number")]
 
-const state = (schemaId: string, fields: SchemaField[], current = fields): SchemaState => ({
+const state = (
+  schemaId: string,
+  fields: SchemaField[],
+  current = fields,
+  // The server's hash of the ORIGINAL fields. On a freshly loaded schema that
+  // is the hash of `fields`, which is what almost every case here is.
+  hash = shapeHash(fields),
+): SchemaState => ({
   fileId: `file_${schemaId}`,
   fileName: `${schemaId}.pdf`,
   filePath: `requests/r/${schemaId}.pdf`,
   schemaId,
   tableLabel: "table 1",
   version: 1,
+  shapeHash: hash,
   original: fields,
   current,
 })
@@ -66,43 +75,31 @@ describe("updateTargetsFor", () => {
     expect(targets[0].added).toEqual([])
   })
 
-  it("offers a table short of one field, and names the field it would gain", () => {
-    const source = state("sch_1", INVOICE)
-    const short = state("sch_2", [f("invoice_number", "text"), f("invoice_date", "date")])
-
-    const targets = updateTargetsFor([source, short], source)
-    expect(targets.map((t) => t.schema.schemaId)).toEqual(["sch_2"])
-    expect(targets[0].added).toEqual(["total"])
-  })
-
   it("leaves out a table short of two", () => {
-    const source = state("sch_1", INVOICE)
-    const short = state("sch_2", [f("invoice_number", "text")])
+    const source = state("sch_1", INVOICE, addField(addField(INVOICE, "supplier", "text"), "po", "text"))
+    const short = state("sch_2", INVOICE)
     expect(updateTargetsFor([source, short], source)).toEqual([])
   })
 
   it("leaves out a table holding a field this schema does not — that write would drop it", () => {
+    // sch_2 gained the field by hand since it loaded, so it still shares the hash.
     const source = state("sch_1", INVOICE)
-    const wider = state("sch_2", addField(INVOICE, "supplier", "text"))
+    const wider = state("sch_2", INVOICE, addField(INVOICE, "supplier", "text"))
     expect(updateTargetsFor([source, wider], source)).toEqual([])
   })
 
-  it("matches on the fields as they are now, which is what the push would write", () => {
-    // sch_2 was read with two fields and has since gained the third by hand,
-    // so it is an exact match today whatever its document said.
+  it("matches on the fields as they are now, within one original shape", () => {
+    // sch_2 was retyped since it loaded. Same original shape, so it is still a
+    // target, and the write is exact because the field lists agree today.
     const source = state("sch_1", INVOICE)
-    const grown = state(
-      "sch_2",
-      [f("invoice_number", "text"), f("invoice_date", "date")],
-      INVOICE,
-    )
-    expect(updateTargetsFor([source, grown], source)[0].added).toEqual([])
+    const twin = state("sch_2", INVOICE, changeFieldType(INVOICE, "total", "currency"))
+    expect(updateTargetsFor([source, twin], source)[0].added).toEqual([])
   })
 
   it("puts the exact matches first", () => {
-    const source = state("sch_1", INVOICE)
-    const short = state("sch_2", [f("invoice_number", "text"), f("invoice_date", "date")])
-    const exact = state("sch_3", INVOICE)
+    const source = state("sch_1", INVOICE, addField(INVOICE, "supplier", "text"))
+    const short = state("sch_2", INVOICE)
+    const exact = state("sch_3", INVOICE, addField(INVOICE, "supplier", "text"))
 
     expect(updateTargetsFor([source, short, exact], source).map((t) => t.schema.schemaId)).toEqual([
       "sch_3",
@@ -113,6 +110,52 @@ describe("updateTargetsFor", () => {
   it("never includes the schema you are editing", () => {
     const source = state("sch_1", INVOICE)
     expect(updateTargetsFor([source], source)).toEqual([])
+  })
+
+  it("trusts the server's hash over the fields it currently holds", () => {
+    // After a reload `original` is re-seeded from the edited fields, so matching
+    // on them would quietly pair tables the server will refuse together.
+    const source = state("sch_1", INVOICE, INVOICE, "deadbeef")
+    const twin = state("sch_2", INVOICE, INVOICE, "deadbeef")
+    const stranger = state("sch_3", INVOICE)
+
+    expect(updateTargetsFor([source, twin, stranger], source).map((t) => t.schema.schemaId))
+      .toEqual(["sch_2"])
+  })
+
+  it("leaves out a table whose ORIGINAL shape differs, however well the names match", () => {
+    // The server keys apply-to-all on the original shape hash and rejects the
+    // whole write when two entries disagree — taking the source's own edit
+    // down with it. Offering this target is offering a dead button.
+    const source = state("sch_1", INVOICE)
+    const otherTypes = state("sch_2", [
+      f("invoice_number", "text"),
+      f("invoice_date", "date"),
+      f("total", "text"),
+    ])
+    expect(updateTargetsFor([source, otherTypes], source)).toEqual([])
+  })
+
+  it("leaves out a table that reached this shape by hand from a different one", () => {
+    // Same fields today, different documents underneath. The server says no.
+    const source = state("sch_1", INVOICE)
+    const grown = state(
+      "sch_2",
+      [f("invoice_number", "text"), f("invoice_date", "date")],
+      INVOICE,
+    )
+    expect(updateTargetsFor([source, grown], source)).toEqual([])
+  })
+
+  it("still offers a table short of a field the SOURCE added by hand", () => {
+    // Both documents read the same way, so they share a hash; the gap is a
+    // field this edit is bringing. The server accepts exactly this.
+    const source = state("sch_1", INVOICE, addField(INVOICE, "supplier", "text"))
+    const twin = state("sch_2", INVOICE)
+
+    const targets = updateTargetsFor([source, twin], source)
+    expect(targets.map((t) => t.schema.schemaId)).toEqual(["sch_2"])
+    expect(targets[0].added).toEqual(["supplier"])
   })
 })
 
@@ -188,23 +231,46 @@ describe("groupByCurrentShape", () => {
   })
 })
 
+describe("settledFileIds", () => {
+  const id = (fileId: string) => ({ fileId })
+
+  it("counts a file that gave up a shape", () => {
+    expect([...settledFileIds([id("f1")], [], [])]).toEqual(["f1"])
+  })
+
+  it("counts a file that gave up a reason instead", () => {
+    expect([...settledFileIds([], [id("f1")], [])]).toEqual(["f1"])
+  })
+
+  it("counts a file whose only answer was a table that held nothing", () => {
+    // Not reachable from the current worker — it fails the whole file when no
+    // sheet produces a shape. Counted anyway, because a settled answer is a
+    // settled answer and the alternative is a screen that reads forever.
+    expect([...settledFileIds([], [], [id("f1")])]).toEqual(["f1"])
+  })
+
+  it("counts a file once however many tables it gave up", () => {
+    expect(settledFileIds([id("f1"), id("f1"), id("f1")], [], []).size).toBe(1)
+  })
+})
+
 describe("allShapesSettled", () => {
   const shape = (fileId: string) => ({ fileId })
 
   it("is false while a file has neither a shape nor a reason it has none", () => {
-    expect(allShapesSettled([shape("f1")], [], 3)).toBe(false)
+    expect(allShapesSettled([shape("f1")], [], [], 3)).toBe(false)
   })
 
   it("counts a file that could not give up a shape as settled", () => {
-    expect(allShapesSettled([shape("f1")], [shape("f2")], 2)).toBe(true)
+    expect(allShapesSettled([shape("f1")], [shape("f2")], [], 2)).toBe(true)
   })
 
   it("counts a file once however many tables it gave up", () => {
-    expect(allShapesSettled([shape("f1"), shape("f1"), shape("f1")], [], 2)).toBe(false)
+    expect(allShapesSettled([shape("f1"), shape("f1"), shape("f1")], [], [], 2)).toBe(false)
   })
 
   it("is false before any file has been accepted, rather than vacuously true", () => {
-    expect(allShapesSettled([], [], 0)).toBe(false)
+    expect(allShapesSettled([], [], [], 0)).toBe(false)
   })
 })
 

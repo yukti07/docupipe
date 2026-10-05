@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@/test/render"
 import type { SchemaField } from "@/lib/api/types"
-import type { SchemaState, UpdateTarget } from "@/lib/schema"
+import { shapeHash, type SchemaState, type UpdateTarget } from "@/lib/schema"
 import { AddFieldControl } from "./AddFieldControl"
 import { SchemaEditor } from "./SchemaEditor"
 import { SchemaFieldRow } from "./SchemaFieldRow"
@@ -22,6 +22,7 @@ const schema = (over: Partial<SchemaState> = {}): SchemaState => ({
   schemaId: "sch_31",
   tableLabel: "table 1",
   version: 1,
+  shapeHash: shapeHash(FIELDS),
   original: FIELDS,
   current: FIELDS,
   ...over,

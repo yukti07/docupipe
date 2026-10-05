@@ -1,9 +1,11 @@
 import { delay, http, HttpResponse } from "msw"
-import { Suspense } from "react"
+import { Suspense, useEffect, useState, type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, render, screen, waitFor, within } from "@/test/render"
 import { server } from "@/test/msw/server"
 import type { SchemaEntry, SchemaField } from "@/lib/api/types"
+import { ensureSession } from "@/lib/session"
+import { BatchProvider } from "@/state/batchContext"
 import { WorkspaceProvider } from "@/state/workspace"
 import ReviewSchemasPage from "./page"
 
@@ -75,6 +77,19 @@ function mockBackend(entries: SchemaEntry[], { pending = 0 } = {}) {
   return saved
 }
 
+/** Stands in for the request layout, which is where the batch state now lives. */
+function Scope({ children }: { children: ReactNode }) {
+  const [userId, setUserId] = useState<string | null>(null)
+  useEffect(() => {
+    void ensureSession().then(setUserId)
+  }, [])
+  return (
+    <BatchProvider requestId={REQUEST} userId={userId} pollSchemas>
+      {children}
+    </BatchProvider>
+  )
+}
+
 async function renderReview(phase?: string) {
   if (phase) {
     localStorage.setItem(
@@ -99,9 +114,11 @@ async function renderReview(phase?: string) {
   await act(async () => {
     rendered = render(
       <WorkspaceProvider>
-        <Suspense fallback={<p>loading</p>}>
-          <ReviewSchemasPage params={params} searchParams={searchParams} />
-        </Suspense>
+        <Scope>
+          <Suspense fallback={<p>loading</p>}>
+            <ReviewSchemasPage params={params} searchParams={searchParams} />
+          </Suspense>
+        </Scope>
       </WorkspaceProvider>,
     )
   })

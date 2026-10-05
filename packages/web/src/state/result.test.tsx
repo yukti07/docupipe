@@ -4,6 +4,7 @@ import { api } from "@/lib/api"
 import type { ResultPollResponse } from "@/lib/api/types"
 import { readCachedResult } from "@/lib/cache"
 import {
+  batchPatch,
   PAUSED_POLL_MS,
   RESULT_POLL_MS,
   RESULT_WARMUP_MS,
@@ -104,5 +105,37 @@ describe("useResultPolling", () => {
     await flush()
 
     expect(readCachedResult("req_1")?.rowsSoFar).toBe(41)
+  })
+})
+
+describe("batchPatch", () => {
+  it("does not touch the file count — `files` is one entry per TABLE", () => {
+    // One three-sheet workbook comes back as three entries. Writing that into
+    // fileCount made the card read "3 files" for a single dropped file.
+    const data = response({
+      status: "COMPLETED",
+      counts: { queued: 0, extracting: 0, filling: 0, done: 3, failed: 0 },
+      files: [
+        { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_0", stage: "DONE", rowCount: 5 },
+        { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_1", stage: "DONE", rowCount: 7 },
+        { fileId: "f_1", fileName: "books.xlsx", schemaId: "sch_2", stage: "DONE", rowCount: 2 },
+      ],
+    })
+
+    expect(batchPatch(data)).not.toHaveProperty("fileCount")
+  })
+
+  it("still reports the tables, the rows and the phase", () => {
+    const data = response({
+      status: "COMPLETED",
+      counts: { queued: 0, extracting: 0, filling: 0, done: 3, failed: 1 },
+      rowsSoFar: 14,
+    })
+    const patch = batchPatch(data)
+
+    expect(patch.phase).toBe("done")
+    expect(patch.summary?.tables).toBe(3)
+    expect(patch.summary?.rows).toBe(14)
+    expect(patch.summary?.failed).toBe(1)
   })
 })
